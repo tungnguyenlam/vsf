@@ -1,0 +1,5 @@
+presidio-analyzer
+presidio-anonymizer
+presidio-image-anonymizer
+python-dotenv
+
