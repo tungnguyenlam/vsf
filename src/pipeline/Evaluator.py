@@ -1,4 +1,5 @@
 from collections import defaultdict
+from tqdm.auto import tqdm
 
 DEFAULT_LABEL_TO_PRESIDIO = {
     "HO_VA_TEN": "PERSON",
@@ -10,7 +11,7 @@ DEFAULT_LABEL_TO_PRESIDIO = {
     "THANG": "DATE_TIME",
     "NAM": "DATE_TIME",
     "SO_DIEN_THOAI": "PHONE_NUMBER",
-    "EMAIL": "EMAIL_ADDRESS",
+    "DIA_CHI_EMAIL": "EMAIL_ADDRESS",
     "THANH_PHO_TINH": "LOCATION",
     "QUAN_HUYEN": "LOCATION",
     "PHUONG_XA": "LOCATION",
@@ -23,8 +24,7 @@ DEFAULT_LABEL_TO_PRESIDIO = {
     "MA_NHAN_VIEN": "ID",
     "MA_GIAO_DICH": "ID",
     "MA_SO_THUE": "ID",
-    "SO_CMND": "ID",
-    "SO_CCCD": "ID",
+    "SO_CCCD_CMND": "ID",
     "SO_HO_CHIEU": "ID",
 }
 
@@ -53,23 +53,47 @@ class PIIEvaluator:
         score_threshold: float = 0.0,
         use_type_mapping: bool = False,
         return_per_entity: bool = False,
+        return_per_label: bool = False,
     ):
-        """Evaluate Presidio analyzer predictions against ground truth privacy masks."""
+        """Evaluate Presidio analyzer predictions against ground truth privacy masks.
+        
+        Args:
+            return_per_entity: If True, return grouped metrics by Presidio type (PERSON, LOCATION, etc.)
+            return_per_label: If True, return fine-grained metrics by original dataset label
+                              (HO_VA_TEN, DUONG_PHO, etc.). Tracks TP/FN per label to show
+                              recall breakdown within each grouped category.
+        
+        Returns:
+            - overall metrics dict (always)
+            - per_entity_metrics dict (when return_per_entity=True)
+            - per_label_metrics dict (when return_per_label=True)
+            Returned as a tuple: (overall,), (overall, per_entity), (overall, per_label),
+            or (overall, per_entity, per_label) depending on flags.
+        """
         tp = fp = fn = 0
         mapped_types = set(self.label_to_presidio.values())
         per_entity = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        per_label = defaultdict(lambda: {"tp": 0, "fn": 0, "group": None})
         
         # Determine whether analyzer is an AnalyzerEngine or a BaseModel wrapper
         is_wrapper = hasattr(analyzer, "predict") and not hasattr(analyzer, "analyze")
         
-        for _, row in df_eval.iterrows():
-            gt_spans = [(item["start"], item["end"], item["label"]) for item in row["privacy_mask"]]
+        for _, row in tqdm(df_eval.iterrows(), total=len(df_eval), desc="Evaluating"):
+            gt_spans_raw = [(item["start"], item["end"], item["label"]) for item in row["privacy_mask"]]
+            
             if use_type_mapping:
-                gt_spans = [
-                    (start, end, self.label_to_presidio.get(label))
-                    for start, end, label in gt_spans
-                    if self.label_to_presidio.get(label)
-                ]
+                # Build mapped spans while preserving original labels for fine-grained tracking
+                gt_mapped = []
+                for start, end, label in gt_spans_raw:
+                    mapped = self.label_to_presidio.get(label)
+                    if mapped:
+                        gt_mapped.append((start, end, mapped, label))
+                
+                gt_spans = [(s, e, m) for s, e, m, _ in gt_mapped]
+                gt_original_labels = [orig for _, _, _, orig in gt_mapped]
+            else:
+                gt_spans = gt_spans_raw
+                gt_original_labels = [label for _, _, label in gt_spans_raw]
             
             if is_wrapper:
                 preds = analyzer.predict(inputs=row["source_text"], language=language, score_threshold=score_threshold)
@@ -96,6 +120,7 @@ class PIIEvaluator:
             fp += len(pred_spans) - len(matched_pred)
             fn += len(gt_spans) - len(matched_gt)
             
+            # Per-entity (grouped) tracking
             if use_type_mapping and return_per_entity:
                 for pi, (_, _, pt) in enumerate(pred_spans):
                     if pi in matched_pred:
@@ -105,13 +130,44 @@ class PIIEvaluator:
                 for gi, (_, _, gt) in enumerate(gt_spans):
                     if gi not in matched_gt:
                         per_entity[gt]["fn"] += 1
+            
+            # Per-label (fine-grained) tracking
+            if use_type_mapping and return_per_label:
+                for gi in range(len(gt_spans)):
+                    orig_label = gt_original_labels[gi]
+                    mapped_type = gt_spans[gi][2]
+                    per_label[orig_label]["group"] = mapped_type
+                    if gi in matched_gt:
+                        per_label[orig_label]["tp"] += 1
+                    else:
+                        per_label[orig_label]["fn"] += 1
                         
         overall = self.metrics_from_counts(tp, fp, fn)
-        if not return_per_entity:
-            return overall
-            
-        per_entity_metrics = {
-            entity: self.metrics_from_counts(counts["tp"], counts["fp"], counts["fn"])
-            for entity, counts in per_entity.items()
-        }
-        return overall, per_entity_metrics
+        
+        # Build return value based on requested granularity
+        results = [overall]
+        
+        if return_per_entity:
+            per_entity_metrics = {
+                entity: self.metrics_from_counts(counts["tp"], counts["fp"], counts["fn"])
+                for entity, counts in per_entity.items()
+            }
+            results.append(per_entity_metrics)
+        
+        if return_per_label:
+            per_label_metrics = {}
+            for label, counts in per_label.items():
+                label_tp = counts["tp"]
+                label_fn = counts["fn"]
+                recall = label_tp / (label_tp + label_fn) if (label_tp + label_fn) else 0.0
+                per_label_metrics[label] = {
+                    "group": counts["group"],
+                    "tp": label_tp,
+                    "fn": label_fn,
+                    "recall": recall,
+                }
+            results.append(per_label_metrics)
+        
+        if len(results) == 1:
+            return results[0]
+        return tuple(results)

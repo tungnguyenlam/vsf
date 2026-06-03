@@ -24,10 +24,26 @@ class CustomPatternRecognizer(BaseRecognizer):
                 score=0.35,
             ),
         ]
+        email_patterns = [
+            Pattern(
+                name="email_pattern",
+                regex=r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+                score=0.9,
+            ),
+        ]
+        bank_patterns = [
+            Pattern(
+                name="vn_bank_account",
+                regex=r"\b\d{8,15}\b",
+                score=0.5,
+            ),
+        ]
         return [
-            PatternRecognizer(supported_entity="PHONE_NUMBER", patterns=phone_patterns),
-            PatternRecognizer(supported_entity="ID", patterns=id_patterns),
-            PatternRecognizer(supported_entity="LOCATION", patterns=address_patterns),
+            PatternRecognizer(supported_entity="PHONE_NUMBER", patterns=phone_patterns, supported_language="vi"),
+            PatternRecognizer(supported_entity="ID", patterns=id_patterns, supported_language="vi"),
+            PatternRecognizer(supported_entity="LOCATION", patterns=address_patterns, supported_language="vi"),
+            PatternRecognizer(supported_entity="EMAIL_ADDRESS", patterns=email_patterns, supported_language="vi", context=["email", "thư điện tử", "hòm thư"]),
+            PatternRecognizer(supported_entity="BANK_ACCOUNT", patterns=bank_patterns, supported_language="vi", context=["tài khoản", "số tài khoản", "stk", "ngân hàng"]),
         ]
         
     def load_model(self):
