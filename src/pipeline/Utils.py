@@ -3,7 +3,24 @@ def with_prefix(prefix: str, metrics: dict) -> dict:
     return {f"{prefix}_{key}": value for key, value in metrics.items()}
 
 
-DEFAULT_DATASET_NAME = "NAMANDREWLV/pii-masking-95k-preencoded"
+DEFAULT_DATASET_NAME = "nguyenlamtung/pii-masking-95k-preencoded"
+
+
+def load_hf_token():
+    """Load the nearest .env into the environment and return the HF token.
+
+    The dataset is private, so the Hugging Face token from .env (HF_TOKEN) is
+    required to download it. Returns None if no token is configured.
+    """
+    import os
+
+    try:
+        from dotenv import load_dotenv, find_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))
+    except ImportError:
+        pass
+    return os.environ.get("HF_TOKEN")
 
 
 def normalize_privacy_mask(value):
@@ -33,7 +50,7 @@ def load_evaluation_dataset(
     import pandas as pd
     from datasets import load_dataset
 
-    dataset = load_dataset(dataset_name)
+    dataset = load_dataset(dataset_name, token=load_hf_token())
     available_splits = list(dataset.keys())
 
     if split == "all":

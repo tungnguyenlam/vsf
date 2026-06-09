@@ -6,7 +6,9 @@ sys.path.insert(0, project_root)
 from datasets import load_dataset
 from collections import Counter
 
-dataset = load_dataset("NAMANDREWLV/pii-masking-95k-preencoded")
+from src.pipeline.Utils import load_hf_token
+
+dataset = load_dataset("nguyenlamtung/pii-masking-95k-preencoded", token=load_hf_token())
 
 for split_name in dataset:
     label_counter = Counter()
