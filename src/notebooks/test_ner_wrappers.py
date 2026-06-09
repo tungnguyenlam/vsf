@@ -2,6 +2,13 @@
 import sys
 import os
 
+import pytest
+
+
+pytestmark = pytest.mark.integration
+if os.environ.get("RUN_INTEGRATION_TESTS") != "1":
+    pytest.skip("Set RUN_INTEGRATION_TESTS=1 to run model-loading smoke tests.", allow_module_level=True)
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)

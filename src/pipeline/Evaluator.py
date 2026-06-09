@@ -49,7 +49,7 @@ class PIIEvaluator:
         self,
         df_eval,
         analyzer,
-        language: str = "xx",
+        language: str = "vi",
         score_threshold: float = 0.0,
         use_type_mapping: bool = False,
         return_per_entity: bool = False,
@@ -96,7 +96,14 @@ class PIIEvaluator:
                 gt_original_labels = [label for _, _, label in gt_spans_raw]
             
             if is_wrapper:
-                preds = analyzer.predict(inputs=row["source_text"], language=language, score_threshold=score_threshold)
+                input_id = row.get("input_id", row.name)
+                preds = analyzer.predict(
+                    inputs=row["source_text"],
+                    language=language,
+                    score_threshold=score_threshold,
+                    input_ids=input_id,
+                    ground_truth=row["privacy_mask"],
+                )
             else:
                 preds = analyzer.analyze(text=row["source_text"], language=language, score_threshold=score_threshold)
                 
