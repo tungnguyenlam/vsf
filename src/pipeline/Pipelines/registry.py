@@ -6,6 +6,7 @@ from src.pipeline.Pipelines.Models import (
     UndertheseaNerPipeline,
     UndertheseaRegexPipeline,
     UndertheseaRegexRecallPipeline,
+    UndertheseaRegexRecallResolvedPipeline,
 )
 
 
@@ -16,6 +17,7 @@ PIPELINE_REGISTRY = {
     "underthesea_ner": UndertheseaNerPipeline,
     "underthesea_regex": UndertheseaRegexPipeline,
     "underthesea_regex_recall": UndertheseaRegexRecallPipeline,
+    "underthesea_regex_recall_resolved": UndertheseaRegexRecallResolvedPipeline,
     "hybrid_regex": HybridRegexPipeline,
 }
 

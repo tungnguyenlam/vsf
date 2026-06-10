@@ -443,3 +443,54 @@ here. It gives us recognizers, scores, and conflict resolution hooks. The
 self-improving part has to be built around it: mine errors, convert repeated
 failure modes into recognizer or resolver changes, rerun on validation, and keep
 test untouched for final reporting.
+
+## Addendum: Deterministic Resolver v1
+
+We then implemented the first resolver experiment as a separate pipeline variant:
+
+- registry key: `underthesea_regex_recall_resolved`
+- class: `UndertheseaRegexRecallResolvedPipeline`
+- resolver: `DeterministicResolver`
+
+The resolver runs after Presidio's AnalyzerEngine and before the optional LLM
+verifier. It receives the already-resolved Presidio candidates and can drop
+repeated false-positive patterns using:
+
+- entity type,
+- recognizer provenance,
+- local Vietnamese context.
+
+Version 1 is deliberately narrow. It only suppresses `PERSON` spans from
+`DeepLearning_UndertheseaNER` when the left-side context strongly suggests an
+organization, document/code/product field, or similar non-person context. It also
+protects person-role contexts such as `Họ và tên`, `Khách hàng`, `Bác sĩ`,
+`Người nhận`, `Chủ sở hữu`, and `Đại diện pháp lý`.
+
+An initial broader version also dropped candidates based on address context
+around the span, but that over-dropped real people who were followed by an
+address field. We removed that broad address rule.
+
+### Resolver A/B Results
+
+Validation 500, after narrowing the resolver:
+
+| pipeline | precision | recall | F1 | TP | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|
+| `underthesea_regex_recall` | 0.9679 | 0.8839 | 0.9240 | 1,812 | 60 | 238 |
+| `underthesea_regex_recall_resolved` | 0.9690 | 0.8834 | 0.9242 | 1,811 | 58 | 239 |
+
+Train-val 500:
+
+| pipeline | precision | recall | F1 | TP | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|
+| `underthesea_regex_recall` | 0.9648 | 0.8993 | 0.9309 | 2,000 | 73 | 224 |
+| `underthesea_regex_recall_resolved` | 0.9667 | 0.8993 | 0.9317 | 2,000 | 69 | 224 |
+
+The result is directionally useful but small. On validation 500 it removed two
+false positives at the cost of one true positive. On train-val 500 it removed
+four false positives with no recall loss.
+
+This is enough to keep the resolver variant for continued experiments, but not
+enough to promote it as the default pipeline. The next useful resolver work
+should focus on logging resolver decisions and comparing dropped candidates
+directly, because the current prediction log only contains the final kept spans.

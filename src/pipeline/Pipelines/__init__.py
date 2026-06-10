@@ -12,6 +12,7 @@ from src.pipeline.Pipelines.Models import (
     UndertheseaNerPipeline,
     UndertheseaRegexPipeline,
     UndertheseaRegexRecallPipeline,
+    UndertheseaRegexRecallResolvedPipeline,
 )
 
 
@@ -24,6 +25,7 @@ __all__ = [
     "UndertheseaNerPipeline",
     "UndertheseaRegexPipeline",
     "UndertheseaRegexRecallPipeline",
+    "UndertheseaRegexRecallResolvedPipeline",
     "get_pipeline",
     "get_pipeline_class",
     "list_pipeline_names",

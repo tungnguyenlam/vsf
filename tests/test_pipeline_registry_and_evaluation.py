@@ -1,6 +1,7 @@
 import json
 
 import pandas as pd
+from presidio_analyzer import AnalysisExplanation, RecognizerResult
 
 from src.pipeline.Evaluator import PIIEvaluator
 from src.pipeline.BasePipeline import PIIPipeline
@@ -12,11 +13,13 @@ from src.pipeline.Pipelines import (
     UndertheseaNerPipeline,
     UndertheseaRegexPipeline,
     UndertheseaRegexRecallPipeline,
+    UndertheseaRegexRecallResolvedPipeline,
     get_pipeline,
     get_pipeline_class,
 )
 from src.pipeline.NERWrappers.UndertheseaNER import UndertheseaNER
 from src.pipeline.Recognizers.CustomPatternRecognizer import CustomPatternRecognizer
+from src.pipeline.Resolvers import DeterministicResolver
 
 
 def read_jsonl(path):
@@ -30,6 +33,7 @@ def test_pipeline_registry_returns_expected_classes():
     assert get_pipeline_class("underthesea_ner") is UndertheseaNerPipeline
     assert get_pipeline_class("underthesea_regex") is UndertheseaRegexPipeline
     assert get_pipeline_class("underthesea_regex_recall") is UndertheseaRegexRecallPipeline
+    assert get_pipeline_class("underthesea_regex_recall_resolved") is UndertheseaRegexRecallResolvedPipeline
     assert get_pipeline_class("hybrid_regex") is HybridRegexPipeline
     assert isinstance(get_pipeline("regex_recall", prediction_log_path=None), RegexRecallPipeline)
     assert isinstance(get_pipeline("underthesea_ner", prediction_log_path=None), UndertheseaNerPipeline)
@@ -37,6 +41,10 @@ def test_pipeline_registry_returns_expected_classes():
     assert isinstance(
         get_pipeline("underthesea_regex_recall", prediction_log_path=None),
         UndertheseaRegexRecallPipeline,
+    )
+    assert isinstance(
+        get_pipeline("underthesea_regex_recall_resolved", prediction_log_path=None),
+        UndertheseaRegexRecallResolvedPipeline,
     )
     assert isinstance(get_pipeline("regex_only", prediction_log_path=None), RegexOnlyPipeline)
     assert RegexOnlyPipeline.__module__ == "src.pipeline.Pipelines.Models.RegexOnlyPipeline"
@@ -101,6 +109,39 @@ def test_regex_pipeline_covers_contextual_date_location_person_and_org():
         spans_by_type["LOCATION"]
     )
     assert {"PAYRT612345", "C6967287"}.issubset(spans_by_type["ID"])
+
+
+def test_deterministic_resolver_drops_underthesea_person_in_org_context():
+    text = "Bệnh viện Bạch Mai tiếp nhận hồ sơ. Họ và tên: Nguyễn Văn An."
+    hospital_start = text.index("Bạch Mai")
+    person_start = text.index("Nguyễn Văn An")
+    results = [
+        _underthesea_person(hospital_start, hospital_start + len("Bạch Mai")),
+        _underthesea_person(person_start, person_start + len("Nguyễn Văn An")),
+    ]
+
+    resolved = DeterministicResolver().resolve(text, results)
+
+    assert [text[result.start:result.end] for result in resolved] == ["Nguyễn Văn An"]
+
+
+def _underthesea_person(start, end):
+    explanation = AnalysisExplanation(
+        recognizer="DeepLearning_UndertheseaNER",
+        original_score=0.8,
+        textual_explanation="Detected by UndertheseaNER",
+    )
+    result = RecognizerResult(
+        entity_type="PERSON",
+        start=start,
+        end=end,
+        score=0.8,
+        analysis_explanation=explanation,
+    )
+    result.recognition_metadata = {
+        RecognizerResult.RECOGNIZER_NAME_KEY: "DeepLearning_UndertheseaNER",
+    }
+    return result
 
 
 def test_bare_pipeline_fallback_is_vietnamese_offline_regex():

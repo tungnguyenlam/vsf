@@ -2,6 +2,7 @@ from src.pipeline.NERWrappers.UndertheseaNER import UndertheseaNER
 from src.pipeline.Pipelines.base import VietnamesePipeline
 from src.pipeline.Recognizers.CustomPatternRecognizer import CustomPatternRecognizer
 from src.pipeline.Recognizers.DeepLearningRecognizer import DeepLearningRecognizer
+from src.pipeline.Resolvers import DeterministicResolver
 
 
 class UndertheseaRegexPipeline(VietnamesePipeline):
@@ -30,3 +31,15 @@ class UndertheseaRegexRecallPipeline(UndertheseaRegexPipeline):
 
     def __init__(self, **kwargs):
         super().__init__(recall_regex=True, **kwargs)
+
+
+class UndertheseaRegexRecallResolvedPipeline(UndertheseaRegexPipeline):
+    """Underthesea recall pipeline with deterministic post-analysis resolution."""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            recall_regex=True,
+            resolver=DeterministicResolver(),
+            **kwargs,
+        )
+        self.pipeline_name = "underthesea_regex_recall_resolved"

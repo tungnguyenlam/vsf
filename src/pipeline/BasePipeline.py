@@ -19,6 +19,7 @@ class PIIPipeline(BaseModel):
         spacy_recognizer=None,
         recognizers=None,
         analyzer=None,
+        resolver=None,
         verifier=None,
         device: str = "cpu",
         verbose: bool = False,
@@ -36,6 +37,7 @@ class PIIPipeline(BaseModel):
         self.spacy_recognizer = spacy_recognizer
         self.recognizers = recognizers or []
         self.analyzer = analyzer
+        self.resolver = resolver
         self.verifier = verifier
         self.pipeline_name = pipeline_name
         self.default_language = default_language
@@ -157,6 +159,8 @@ class PIIPipeline(BaseModel):
         if logging_enabled or self.verifier is not None:
             analyze_kwargs["return_decision_process"] = True
         results = self.analyzer.analyze(**analyze_kwargs)
+        if self.resolver is not None:
+            results = self.resolver.resolve(text, results, language=language)
         if self.verifier is not None:
             results = self.verifier.verify(text, results, language=language)
         return results

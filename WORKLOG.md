@@ -264,3 +264,23 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated report/2026-06-10-regex-underthesea-session.md with the post-cleanup validation results, precision/recall tradeoff, per-entity metrics, runtime/RAM observation, and updated recommendation that further gains should move toward a resolver/verifier rather than broad regex tuning.
 - Verified by reviewing the report diff; no code or tests changed in this documentation-only step.
 - Residual risk: report now includes both the earlier and later Underthesea runtime observations, which should be interpreted as environment/run variance rather than a stable benchmark.
+
+## 2026-06-10
+- Added deterministic resolver support as a post-Analyzer hook in PIIPipeline and registered underthesea_regex_recall_resolved. The v1 resolver only suppresses Underthesea PERSON candidates in strong left-side organization/document/product/code contexts while preserving person-label contexts.
+- Updated docs/pipelines.md and report/2026-06-10-regex-underthesea-session.md with resolver behavior and A/B results.
+- Verified with: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
+- Evaluated underthesea_regex_recall_resolved on validation limit 500: precision 0.9689673622, recall 0.8834146341, F1 0.9242153611, TP 1811, FP 58, FN 239. Compared with unresolved validation 500, this is a tiny precision/F1 gain with one extra FN.
+- Evaluated train_val limit 500: resolved precision 0.9666505558, recall 0.8992805755, F1 0.9317493594, TP 2000, FP 69, FN 224; unresolved comparison was precision 0.9647853353, recall 0.8992805755, F1 0.9308820107, TP 2000, FP 73, FN 224.
+- Residual risk: effect size is small and current logs only show final kept spans, not resolver-dropped candidates. Add resolver decision logging before relying on this for larger tuning.
+
+## 2026-06-11
+- Added docs/current-direction.md to preserve the agreed project guidance: finish a presentable Vietnamese PII checkpoint before moving to prompt injection detection.
+- Linked the guidance note from docs/README.md.
+- Verification: reviewed the new note and docs index diff.
+- Residual risk: this is a planning/documentation note only; the current staged resolver implementation still needs to be committed or otherwise stabilized separately.
+
+## 2026-06-11
+- Added docs/pii-checkpoint.md as a mentor-ready Vietnamese PII checkpoint covering entity scope, dataset, metrics, method comparison, current recommendation, TODOs, and mentor confirmation questions.
+- Updated docs/README.md to link both current-direction and PII checkpoint guidance.
+- Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
+- Residual risk: Vietnam-specific checksum/format rules are listed as research items and still need official-source confirmation before seminar or production claims.

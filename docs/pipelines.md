@@ -39,6 +39,7 @@ Current registry keys:
 | `underthesea_ner` | `UndertheseaNerPipeline` | `Models/UndertheseaNerPipeline.py` |
 | `underthesea_regex` | `UndertheseaRegexPipeline` | `Models/UndertheseaRegexPipeline.py` |
 | `underthesea_regex_recall` | `UndertheseaRegexRecallPipeline` | `Models/UndertheseaRegexPipeline.py` |
+| `underthesea_regex_recall_resolved` | `UndertheseaRegexRecallResolvedPipeline` | `Models/UndertheseaRegexPipeline.py` |
 | `hybrid_regex` | `HybridRegexPipeline` | `Models/HybridRegexPipeline.py` |
 
 ## Adding a Pipeline
@@ -136,3 +137,15 @@ candidate spans already found by Presidio recognizers and returns sparse correct
 ```
 
 Unmentioned candidates are kept unchanged. The verifier does not add missing spans.
+
+## Resolver Output
+
+`underthesea_regex_recall_resolved` adds a deterministic resolver after Presidio's
+AnalyzerEngine and before the optional LLM verifier. This is not a learned model.
+It uses recognizer provenance and local Vietnamese context to drop repeated
+validation false-positive patterns from resolved candidates.
+
+The first resolver version is conservative: it only suppresses Underthesea
+`PERSON` candidates when left-side context strongly indicates organization,
+document, product, or code fields, while keeping candidates supported by person
+labels such as `Họ và tên` or `Khách hàng`.
