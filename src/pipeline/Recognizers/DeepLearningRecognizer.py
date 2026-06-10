@@ -58,6 +58,12 @@ class _WrapperEntityRecognizer(EntityRecognizer):
                 score=round(pred["score"], 2),
                 analysis_explanation=explanation,
             )
+            # Carry provenance so a downstream verifier knows this came from the
+            # deep-learning recognizer (regex/spaCy recognizers set this already).
+            result.recognition_metadata = {
+                RecognizerResult.RECOGNIZER_NAME_KEY: self.name,
+                RecognizerResult.RECOGNIZER_IDENTIFIER_KEY: self.id,
+            }
             results.append(result)
 
         return results

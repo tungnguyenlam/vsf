@@ -29,6 +29,22 @@ def parse_args():
     parser.add_argument("--no-log", action="store_true", help="Disable JSONL prediction logging.")
     parser.add_argument("--include-source-text", action="store_true")
     parser.add_argument("--per-label", action="store_true", help="Include fine-grained label recall.")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run an LLM adjudication pass over recognizer results (requires ANTHROPIC_API_KEY).",
+    )
+    parser.add_argument(
+        "--verify-model",
+        default="claude-opus-4-8",
+        help="Claude model id for the --verify adjudication pass.",
+    )
+    parser.add_argument(
+        "--verify-effort",
+        default="low",
+        choices=["low", "medium", "high", "max"],
+        help="Effort level for the --verify adjudication pass.",
+    )
     return parser.parse_args()
 
 
@@ -41,11 +57,18 @@ def main():
         split=args.split,
         limit=args.limit,
     )
+    verifier = None
+    if args.verify:
+        from src.pipeline.Verifiers import LLMVerifier
+
+        verifier = LLMVerifier(model=args.verify_model, effort=args.verify_effort)
+
     pipeline = get_pipeline(
         args.pipeline,
         prediction_log_path=log_path,
         include_source_text=args.include_source_text,
         default_score_threshold=args.score_threshold,
+        verifier=verifier,
     )
 
     evaluator = PIIEvaluator()

@@ -18,6 +18,7 @@ class PIIPipeline(BaseModel):
         spacy_recognizer=None,
         recognizers=None,
         analyzer=None,
+        verifier=None,
         device: str = "cpu",
         verbose: bool = False,
         pipeline_name: str = "pii_pipeline",
@@ -34,6 +35,7 @@ class PIIPipeline(BaseModel):
         self.spacy_recognizer = spacy_recognizer
         self.recognizers = recognizers or []
         self.analyzer = analyzer
+        self.verifier = verifier
         self.pipeline_name = pipeline_name
         self.default_language = default_language
         self.default_score_threshold = default_score_threshold
@@ -150,9 +152,13 @@ class PIIPipeline(BaseModel):
             "language": language,
             "score_threshold": score_threshold,
         }
-        if logging_enabled:
+        # Decision process carries recognizer provenance the verifier needs.
+        if logging_enabled or self.verifier is not None:
             analyze_kwargs["return_decision_process"] = True
-        return self.analyzer.analyze(**analyze_kwargs)
+        results = self.analyzer.analyze(**analyze_kwargs)
+        if self.verifier is not None:
+            results = self.verifier.verify(text, results, language=language)
+        return results
 
     def _log_prediction(self, *, text, results, input_id, ground_truth, language, score_threshold):
         anonymized_text = None
