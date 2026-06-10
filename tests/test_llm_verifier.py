@@ -9,7 +9,7 @@ from src.pipeline.Verifiers.LLMVerifier import LLMVerifier
 
 class FakeCompletions:
     def __init__(self, response=None, error=None):
-        self.response = response or {"decisions": []}
+        self.response = response or {"drop": [], "relabel": []}
         self.error = error
         self.requests = []
 
@@ -42,6 +42,7 @@ def test_default_provider_requires_supported_parameters():
     assert request["extra_body"]["provider"] == {"require_parameters": True}
     assert request["response_format"]["type"] == "json_schema"
     assert request["response_format"]["json_schema"]["strict"] is True
+    assert request["max_tokens"] == 1024
 
 
 def test_explicit_provider_pin_is_passed_through():
@@ -57,23 +58,11 @@ def test_explicit_provider_pin_is_passed_through():
     }
 
 
-def test_verify_applies_keep_drop_and_relabel_decisions():
+def test_verify_applies_sparse_drop_and_relabel_corrections():
     completions = FakeCompletions(
         {
-            "decisions": [
-                {
-                    "id": 0,
-                    "keep": True,
-                    "entity_type": "BANK_ACCOUNT",
-                    "reason": "context says STK",
-                },
-                {
-                    "id": 1,
-                    "keep": False,
-                    "entity_type": "ID",
-                    "reason": "order code",
-                },
-            ]
+            "drop": [1],
+            "relabel": [{"id": 0, "entity_type": "BANK_ACCOUNT"}],
         }
     )
     verifier = LLMVerifier(client=FakeClient(completions))
@@ -83,6 +72,17 @@ def test_verify_applies_keep_drop_and_relabel_decisions():
 
     assert len(adjudicated) == 1
     assert adjudicated[0].entity_type == "BANK_ACCOUNT"
+
+
+def test_verify_keeps_unmentioned_candidates_unchanged():
+    completions = FakeCompletions({"drop": [], "relabel": []})
+    verifier = LLMVerifier(client=FakeClient(completions))
+    results = [make_result("ID"), make_result("PHONE_NUMBER")]
+
+    adjudicated = verifier.verify("Mã 123456 và sđt 098765", results)
+
+    assert adjudicated == results
+    assert [r.entity_type for r in adjudicated] == ["ID", "PHONE_NUMBER"]
 
 
 def test_verify_falls_back_to_noop_by_default_on_error():

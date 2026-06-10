@@ -33,6 +33,12 @@ Each evaluation dataset is a `BaseDataset` subclass under `src/pipeline/Datasets
 
 For every dataset, also write `docs/datasets/<name>.md` documenting: what it is, columns/format, the span format, the full label taxonomy, and the mismatch vs our Presidio entity types (which labels map, which are dropped). Add it to the index in `docs/datasets/README.md`.
 
+## Pipelines
+
+Pipeline model classes live under `src/pipeline/Pipelines/Models/`, with one PascalCase file per class (for example `RegexOnlyPipeline.py`). Keep model definitions out of infrastructure files: `registry.py` only maps stable names to classes, `base.py` owns shared Vietnamese pipeline behavior, and `evaluation.py` owns `PipelineEvaluationConfig` / `PipelineEvaluationRunner`.
+
+When adding or changing a pipeline, update `docs/pipelines.md`, register it in `src/pipeline/Pipelines/registry.py`, and add focused registry/evaluation tests.
+
 ## Cost and sampling discipline
 
 The total paid LLM budget for this project is small ($2-$10 from start to finish). Treat LLM calls as scarce experiment budget, not routine evaluation infrastructure.

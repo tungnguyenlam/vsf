@@ -123,5 +123,12 @@ from src.pipeline.Evaluator import PIIEvaluator
 evaluator = PIIEvaluator(ds.label_to_presidio)  # dataset owns the mapping
 ```
 
-CLI (`scripts/evaluate_pipeline.py`) currently loads via `--dataset` (HF repo id) through the legacy
-`Utils.load_evaluation_dataset`, which is behavior-compatible with this class for this dataset.
+CLI evaluation is run through `scripts/evaluate_pipeline.py`, which delegates to the OOP runner in
+`src/pipeline/Pipelines/evaluation.py`:
+
+```bash
+PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --dataset nguyenlamtung/pii-masking-95k-preencoded --split test --limit 50
+```
+
+The runner loads local `.env` values before dataset setup, so this private dataset can use
+`HF_TOKEN` from `.env`.

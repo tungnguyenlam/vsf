@@ -23,6 +23,7 @@ def test_pipeline_registry_returns_expected_classes():
     assert get_pipeline_class("regex_only") is RegexOnlyPipeline
     assert get_pipeline_class("hybrid_regex") is HybridRegexPipeline
     assert isinstance(get_pipeline("regex_only", prediction_log_path=None), RegexOnlyPipeline)
+    assert RegexOnlyPipeline.__module__ == "src.pipeline.Pipelines.Models.RegexOnlyPipeline"
 
 
 def test_lightweight_vietnamese_pipelines_predict_small_text():
@@ -38,6 +39,42 @@ def test_lightweight_vietnamese_pipelines_predict_small_text():
     entity_types = {result.entity_type for result in regex_results}
     assert "EMAIL_ADDRESS" in entity_types
     assert "PHONE_NUMBER" in entity_types
+
+
+def test_regex_pipeline_rejects_bare_numeric_false_positives():
+    text = "Số dư khả dụng: 2766000000 CL$. Mã đơn hàng 987654321 đã giao."
+    results = get_pipeline("regex_only", prediction_log_path=None).predict(text)
+
+    assert results == []
+
+
+def test_regex_pipeline_uses_context_for_bank_and_id_numbers():
+    text = "STK 123456789 tại Vietcombank. Số CCCD: 012345678901."
+    results = get_pipeline("regex_only", prediction_log_path=None).predict(text)
+    by_type = {result.entity_type: text[result.start:result.end] for result in results}
+
+    assert by_type["BANK_ACCOUNT"] == "123456789"
+    assert by_type["ID"] == "012345678901"
+
+
+def test_regex_pipeline_covers_contextual_date_location_person_and_org():
+    text = (
+        "Họ và tên: Nguyễn Văn An Ngày sinh: 12/05/1990 "
+        "Địa chỉ: Số 12, Đường Lê Lợi, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh "
+        "Tên tổ chức: Đại học Huế Mã giao dịch: PAYRT612345 Hộ chiếu số C6967287"
+    )
+    results = get_pipeline("regex_only", prediction_log_path=None).predict(text)
+    spans_by_type = {}
+    for result in results:
+        spans_by_type.setdefault(result.entity_type, set()).add(text[result.start:result.end])
+
+    assert "Nguyễn Văn An" in spans_by_type["PERSON"]
+    assert "12/05/1990" in spans_by_type["DATE_TIME"]
+    assert "Đại học Huế" in spans_by_type["ORGANIZATION"]
+    assert {"Số 12", "Đường Lê Lợi", "Phường Bến Nghé", "Quận 1", "TP. Hồ Chí Minh"}.issubset(
+        spans_by_type["LOCATION"]
+    )
+    assert {"PAYRT612345", "C6967287"}.issubset(spans_by_type["ID"])
 
 
 def test_bare_pipeline_fallback_is_vietnamese_offline_regex():

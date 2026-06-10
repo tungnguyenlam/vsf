@@ -4,7 +4,7 @@ from src.pipeline.Pipelines.registry import (
     get_pipeline_class,
     list_pipeline_names,
 )
-from src.pipeline.Pipelines.variants import (
+from src.pipeline.Pipelines.Models import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
     RegexOnlyPipeline,

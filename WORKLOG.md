@@ -104,3 +104,82 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated evaluation CLI default logging path handling and focused logging tests.
 - Verified with `PYTHONPATH=. .venv/bin/pytest tests/test_prediction_jsonl_logging.py tests/test_pipeline_registry_and_evaluation.py` (12 passed).
 - Residual risk: the readable JSON mirror rewrites the accumulated records on each append, so very large logs may be slower than JSONL-only logging.
+
+## 2026-06-10 — LLM verifier sparse correction output
+- Changed LLMVerifier structured output from one decision per candidate to sparse corrections: `drop` ids plus `relabel` corrections; omitted candidates are kept unchanged.
+- Removed model-emitted `keep` and `reason` fields from the schema/prompt and lowered default max_tokens from 8192 to 1024.
+- Updated verifier tests for sparse drop/relabel and no-change behavior.
+- Verified: `PYTHONPATH=. pytest tests/test_llm_verifier.py -q` -> 6 passed; `PYTHONPATH=. pytest -q` -> 22 passed, 1 skipped.
+- Residual risk: no live OpenRouter call was run, so structured-output provider compatibility with the new schema is still untested.
+
+## 2026-06-10 — Sparse LLM verifier local smoke test
+- Attempted live verifier smoke setup, but current shell has neither OPENROUTER_API_KEY nor OPENAI_API_KEY set.
+- Ran a local fake-client smoke test for the new sparse schema. Verified request schema keys are `drop`/`relabel`, default max_tokens is 1024, relabel is applied, and dropped candidate is removed.
+- Verified: `PYTHONPATH=. python3 - <<PY ...` local smoke passed.
+- Residual risk: live OpenRouter structured-output compatibility remains untested until an API key is available in the shell.
+
+## 2026-06-10 — Sparse LLM verifier live OpenRouter smoke test
+- Loaded OPENROUTER_API_KEY from .env explicitly; shell environment does not auto-load .env.
+- Ran one live OpenRouter verifier call with the new sparse structured-output schema (`drop` + `relabel`).
+- Result: STK-like number was kept/relabelled as BANK_ACCOUNT and order-code number was dropped. This confirms the default require_parameters routing can serve the new strict schema.
+- Verified: one live smoke command passed after network escalation.
+- Residual risk: this was a single handcrafted row, not a sampled dataset evaluation.
+
+## 2026-06-10 — Tiny live end-to-end verified evaluation
+- Ran full pipeline eval with `regex_only`, test split, limit 5, and `--verify`, loading credentials from `.env`.
+- Created prediction logs under `output/predictions/20260610T083008Z/`: 5-line `predictions.jsonl` and `predictions.readable.json`.
+- Metrics on the tiny sample: precision 0.5, recall 0.1, f1 0.1667 (tp=1, fp=1, fn=9).
+- Verified: command completed successfully with live OpenRouter verifier and private dataset access.
+- Residual risk: sample is too small for model conclusions; source_text is null in logs because `--include-source-text` was not passed.
+
+## 2026-06-10 — Tiny live verified eval for remaining pipeline variants
+- Ran `baseline_presidio` and `hybrid_regex` on test split limit 5 with `--verify`, loading credentials from `.env`.
+- baseline_presidio: precision 0.0, recall 0.0, f1 0.0 (tp=0, fp=0, fn=10), log `output/predictions/20260610T083503Z/predictions.jsonl`.
+- hybrid_regex: precision 0.5, recall 0.1, f1 0.1667 (tp=1, fp=1, fn=9), log `output/predictions/20260610T083504Z/predictions.jsonl`.
+- Verified both logs exist with 5 JSONL records and readable JSON mirrors.
+- Residual risk: limit=5 smoke only; hybrid_regex currently matches regex_only because no extra recognizers were configured.
+
+## 2026-06-10 — Pipeline class file split and reusable evaluation runner
+- Split registered pipeline model classes into separate files: `baseline_presidio.py`, `regex_only.py`, and `hybrid_regex.py` under `src/pipeline/Pipelines/`.
+- Updated registry/package exports to import the separate model files; kept `variants.py` as a compatibility re-export only.
+- Added `src/pipeline/Pipelines/evaluation.py` as the reusable evaluation runner with the previous CLI options and local `.env` loading before dataset/verifier setup.
+- Simplified `scripts/evaluate_pipeline.py` to a thin wrapper around the evaluation module.
+- Verified: py_compile for changed runner/model files; `scripts/evaluate_pipeline.py --help`; focused tests -> 11 passed; full suite -> 22 passed, 1 skipped; tiny no-LLM CLI run `baseline_presidio --split test --limit 1 --no-log` completed.
+- Residual risk: no verified LLM eval was rerun after this structural refactor, but the verifier behavior itself was already covered by tests.
+
+## 2026-06-10 — Make pipeline models easier to spot and OO eval runner
+- Moved pipeline model classes into `src/pipeline/Pipelines/Models/` with PascalCase filenames matching the class names: `BaselinePresidioPipeline.py`, `RegexOnlyPipeline.py`, and `HybridRegexPipeline.py`.
+- Removed the lowercase root-level pipeline model files; root `Pipelines/` now keeps infrastructure files like `registry.py`, `base.py`, and `evaluation.py`.
+- Kept public package imports and `variants.py` compatibility re-export working through `Pipelines.Models`.
+- Refactored evaluation orchestration into `PipelineEvaluationConfig` and `PipelineEvaluationRunner` classes; CLI still calls the same script entrypoint.
+- Added a registry test assertion that `RegexOnlyPipeline` comes from `src.pipeline.Pipelines.Models.RegexOnlyPipeline`.
+- Verified: py_compile passed; `scripts/evaluate_pipeline.py --help` renders; `tests/test_pipeline_registry_and_evaluation.py` -> 5 passed; full suite -> 22 passed, 1 skipped.
+- Residual risk: old notebooks that import from lowercase modules such as `src.pipeline.Pipelines.regex_only` would now need package-level or `Pipelines.Models` imports; current repo search found no such imports.
+
+## 2026-06-10 — Pipeline docs updated for Models layout and OO runner
+- Added `docs/README.md` as a docs index.
+- Added `docs/pipelines.md` documenting `src/pipeline/Pipelines/Models/`, PascalCase model files, registry responsibilities, OOP evaluation runner usage, prediction logs, and sparse verifier output.
+- Updated dataset docs to avoid stale `variants.py`-only guidance and to point CLI evaluation at `src/pipeline/Pipelines/evaluation.py`.
+- Updated `AGENTS.md` with the pipeline model class convention for future agents.
+- Verified: stale-reference scan found no old lowercase pipeline module references; `scripts/evaluate_pipeline.py --help` renders; full suite -> 22 passed, 1 skipped.
+- Residual risk: notebook prose/output may still show older ad hoc pipeline examples, but no source imports referenced the removed lowercase pipeline modules.
+
+## 2026-06-10 — Regex-only precision target reached without LLM
+- Reworked `CustomPatternRecognizer` from broad Presidio `PatternRecognizer` rules into a custom `VietnameseContextRegexRecognizer` that returns value-only spans and requires high-confidence Vietnamese context for BANK_ACCOUNT and ID.
+- Removed the low-precision location keyword regex from the base regex recognizer; regex-only now targets high-confidence EMAIL_ADDRESS, PHONE_NUMBER, BANK_ACCOUNT, and ID spans.
+- Tightened phone matching to Vietnamese mobile-like prefixes and fixed CCCD/CMND matching to prefer 12 digits over 9 digits.
+- Added regression tests for rejecting bare numeric false positives and keeping contextual STK/CCCD detections.
+- Baseline before change on full test split without LLM: precision 0.3169, recall 0.1084, f1 0.1616.
+- After change on full test split without LLM: precision 0.9835, recall 0.0975, f1 0.1774 (tp=4177, fp=70, fn=38680). Hybrid regex matches the same recognizer behavior.
+- Verified: `PYTHONPATH=. pytest tests/test_pipeline_registry_and_evaluation.py -q` -> 7 passed; full suite -> 24 passed, 1 skipped; full test eval command completed with no `--verify`.
+- Residual risk: precision target is achieved by sacrificing broad recall, especially LOCATION/PERSON/DATE_TIME/ORGANIZATION, which regex-only does not attempt now.
+
+## 2026-06-10 — Regex-only per-entity metric improvements without LLM
+- Added conservative context regex coverage for DATE_TIME, LOCATION, PERSON, ORGANIZATION, passport IDs, transaction IDs, and more bank-account contexts.
+- Tightened LOCATION matching to case-sensitive administrative/address tokens with field-boundary stops; fixed `TP. ...` overrun and numeric district names such as `Quận 1`.
+- Tightened BANK_ACCOUNT context so balance amounts after `Số dư hiện tại tài khoản` no longer count as accounts; BANK_ACCOUNT precision reached 1.0 on test.
+- Added regression coverage for contextual date/location/person/org/passport/transaction matching.
+- Final no-LLM full test split (`regex_only --split test --no-log --per-label`): precision 0.9808, recall 0.6187, f1 0.7588 (tp=26515, fp=518, fn=16342).
+- Per-entity precision/recall/f1: BANK_ACCOUNT 1.0000/0.3588/0.5281; ID 1.0000/0.6139/0.7607; ORGANIZATION 0.9150/0.3651/0.5220; LOCATION 0.9780/0.8639/0.9174; PERSON 1.0000/0.3100/0.4733; DATE_TIME 1.0000/0.4361/0.6073; PHONE_NUMBER 0.9620/1.0000/0.9806; EMAIL_ADDRESS 1.0000/1.0000/1.0000.
+- Verified: focused pipeline tests -> 8 passed; full suite -> 25 passed, 1 skipped.
+- Residual risk: recall remains intentionally limited for PERSON/ORGANIZATION/DATE_TIME compared with an NER model; regex-only still cannot robustly cover free-form names or all organization mentions.

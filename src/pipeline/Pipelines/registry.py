@@ -1,4 +1,4 @@
-from src.pipeline.Pipelines.variants import (
+from src.pipeline.Pipelines.Models import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
     RegexOnlyPipeline,

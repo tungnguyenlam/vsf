@@ -19,8 +19,9 @@ the evaluator takes each dataset's mapping rather than assuming one global dict.
 
 ## Adding a dataset
 
-1. Add a `BaseDataset` subclass in `variants.py` (set `name`, `hf_name`, `requires_token`,
-   column names, and `label_to_presidio`); register it in `registry.py`.
+1. Add a `BaseDataset` subclass under `src/pipeline/Datasets/` (currently small datasets may live
+   in `variants.py`; split to a dedicated file when the class grows). Set `name`, `hf_name`,
+   `requires_token`, column names, and `label_to_presidio`; register it in `registry.py`.
 2. Override `load()` only if the source needs handling the generic HF loader can't express.
 3. Write `docs/datasets/<name>.md` and add a row to the index above.
 

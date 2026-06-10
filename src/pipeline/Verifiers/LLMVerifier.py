@@ -50,19 +50,17 @@ SYSTEM_PROMPT = """You are a precision adjudicator for a Vietnamese PII detectio
 An upstream system (regex rules, a spaCy model, and a transformer NER model) has \
 already detected candidate PII spans in a Vietnamese document and resolved \
 overlaps. Your job is to take each tool's conclusion into account and decide, \
-per candidate, whether it is genuinely PII — and if so, of which type.
+which candidate spans need correction.
 
 You will receive the full source text and a list of candidate spans. Each \
 candidate has: an id, the exact substring, the proposed entity type, the \
 detecting recognizer (`source`), the recognizer's confidence `score`, and a \
 `context` snippet with the span delimited by ⟦ ⟧.
 
-For each candidate, return a decision:
-- `keep`: true if the span is real PII, false if it is a false positive.
-- `entity_type`: the correct type from the allowed list. If the upstream type is \
-right, repeat it; if the recognizer mislabeled it, correct it. Ignored when keep \
-is false.
-- `reason`: one short clause justifying the decision.
+Most candidates should be left unchanged. Return only corrections:
+- `drop`: candidate ids that are false positives.
+- `relabel`: candidate ids whose span is real PII but whose proposed entity type \
+is wrong, with the corrected type from the allowed list.
 
 Guidance specific to this pipeline:
 - Regex recognizers (phone/ID/bank-account/tax-id) match on digit shape alone and \
@@ -72,29 +70,31 @@ Vietnamese context (e.g. "số tài khoản", "STK", "CCCD", "mã số thuế") 
 - Use context to disambiguate numeric types (CCCD vs tax id vs bank account vs \
 phone) and re-label to the correct one.
 - Do NOT invent new spans and do NOT change offsets — judge only the candidates \
-given. Return exactly one decision per candidate id.
+given. Do not include unchanged candidates in the output.
 """
 
 
 DECISION_SCHEMA = {
     "type": "object",
     "properties": {
-        "decisions": {
+        "drop": {
+            "type": "array",
+            "items": {"type": "integer"},
+        },
+        "relabel": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
                     "id": {"type": "integer"},
-                    "keep": {"type": "boolean"},
                     "entity_type": {"type": "string", "enum": ENTITY_TYPES},
-                    "reason": {"type": "string"},
                 },
-                "required": ["id", "keep", "entity_type", "reason"],
+                "required": ["id", "entity_type"],
                 "additionalProperties": False,
             },
-        }
+        },
     },
-    "required": ["decisions"],
+    "required": ["drop", "relabel"],
     "additionalProperties": False,
 }
 
@@ -104,9 +104,10 @@ class LLMVerifier(BaseVerifier):
 
     Sends the candidate spans (with provenance + local context) to an
     OpenAI-compatible Chat Completions endpoint (OpenRouter by default) and
-    applies its keep/drop/re-label decisions. By default, errors degrade to a
-    no-op for interactive use; evaluation should set ``raise_on_error=True`` so
-    routing/auth/schema failures stop the run instead of corrupting metrics.
+    applies its sparse drop/re-label corrections. Unmentioned candidates are
+    kept unchanged. By default, errors degrade to a no-op for interactive use;
+    evaluation should set ``raise_on_error=True`` so routing/auth/schema failures
+    stop the run instead of corrupting metrics.
 
     The provider is just configuration: ``model``/``base_url``/``api_key`` select
     the backend. Defaults target DeepSeek V4 Flash on OpenRouter; point them at a
@@ -119,7 +120,7 @@ class LLMVerifier(BaseVerifier):
         context_window: characters of context to include each side of a span.
         effort: optional reasoning effort ("low"/"medium"/"high"); None disables
             reasoning (correct for non-reasoning flash models).
-        max_tokens: output cap for the decisions response.
+        max_tokens: output cap for the sparse correction response.
         temperature: sampling temperature (0 for deterministic adjudication).
         provider: OpenRouter provider-routing object passed through as
             `extra_body.provider`. Defaults to ``{"require_parameters": True}``
@@ -139,7 +140,7 @@ class LLMVerifier(BaseVerifier):
         api_key: Optional[str] = None,
         context_window: int = 40,
         effort: Optional[str] = None,
-        max_tokens: int = 8192,
+        max_tokens: int = 1024,
         temperature: float = 0.0,
         provider=_PROVIDER_UNSET,
         raise_on_error: bool = False,
@@ -265,17 +266,17 @@ class LLMVerifier(BaseVerifier):
     def _apply(
         self, results: List[RecognizerResult], decisions: dict
     ) -> List[RecognizerResult]:
-        by_id = {d["id"]: d for d in decisions.get("decisions", [])}
+        drop_ids = set(decisions.get("drop", []))
+        relabel_by_id = {
+            d["id"]: d["entity_type"]
+            for d in decisions.get("relabel", [])
+            if "id" in d and "entity_type" in d
+        }
         adjudicated: List[RecognizerResult] = []
         for idx, result in enumerate(results):
-            decision = by_id.get(idx)
-            if decision is None:
-                # Model omitted this candidate — keep it (conservative on recall).
-                adjudicated.append(result)
+            if idx in drop_ids:
                 continue
-            if not decision.get("keep", True):
-                continue
-            corrected = decision.get("entity_type")
+            corrected = relabel_by_id.get(idx)
             if corrected and corrected != result.entity_type:
                 result.entity_type = corrected
             adjudicated.append(result)
