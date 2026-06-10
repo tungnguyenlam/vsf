@@ -15,6 +15,7 @@ the evaluator takes each dataset's mapping rather than assuming one global dict.
 
 | Key | Doc | Summary |
 |-----|-----|---------|
+| `hoangha_vie_pii` | [hoangha-vie-pii.md](hoangha-vie-pii.md) | Gated Vietnamese PII dataset, 10k rows, inline `[value]<label>` spans; locally split into train/dev/test. |
 | `pii_masking_95k` | [pii-masking-95k.md](pii-masking-95k.md) | Vietnamese synthetic PII, ~95k rows, pre-tokenized, 111 labels (default). |
 
 ## Adding a dataset

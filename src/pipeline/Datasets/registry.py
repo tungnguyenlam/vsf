@@ -1,7 +1,8 @@
-from src.pipeline.Datasets.variants import PiiMasking95kDataset
+from src.pipeline.Datasets.variants import HoangHaViePiiDataset, PiiMasking95kDataset
 
 
 DATASET_REGISTRY = {
+    "hoangha_vie_pii": HoangHaViePiiDataset,
     "pii_masking_95k": PiiMasking95kDataset,
 }
 

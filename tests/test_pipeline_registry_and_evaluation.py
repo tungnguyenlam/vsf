@@ -10,6 +10,7 @@ from src.pipeline.Pipelines import (
     HybridRegexPipeline,
     RegexOnlyPipeline,
     RegexRecallPipeline,
+    RegexRecallViePiiPipeline,
     UndertheseaNerPipeline,
     UndertheseaRegexPipeline,
     UndertheseaRegexRecallPipeline,
@@ -30,12 +31,14 @@ def test_pipeline_registry_returns_expected_classes():
     assert get_pipeline_class("baseline_presidio") is BaselinePresidioPipeline
     assert get_pipeline_class("regex_only") is RegexOnlyPipeline
     assert get_pipeline_class("regex_recall") is RegexRecallPipeline
+    assert get_pipeline_class("regex_recall_vie_pii") is RegexRecallViePiiPipeline
     assert get_pipeline_class("underthesea_ner") is UndertheseaNerPipeline
     assert get_pipeline_class("underthesea_regex") is UndertheseaRegexPipeline
     assert get_pipeline_class("underthesea_regex_recall") is UndertheseaRegexRecallPipeline
     assert get_pipeline_class("underthesea_regex_recall_resolved") is UndertheseaRegexRecallResolvedPipeline
     assert get_pipeline_class("hybrid_regex") is HybridRegexPipeline
     assert isinstance(get_pipeline("regex_recall", prediction_log_path=None), RegexRecallPipeline)
+    assert isinstance(get_pipeline("regex_recall_vie_pii", prediction_log_path=None), RegexRecallViePiiPipeline)
     assert isinstance(get_pipeline("underthesea_ner", prediction_log_path=None), UndertheseaNerPipeline)
     assert isinstance(get_pipeline("underthesea_regex", prediction_log_path=None), UndertheseaRegexPipeline)
     assert isinstance(

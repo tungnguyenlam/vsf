@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.pipeline.BasePipeline import _DEFAULT_PREDICTION_LOG_PATH_SENTINEL
+from src.pipeline.Datasets import get_dataset, list_dataset_names
 from src.pipeline.Evaluator import PIIEvaluator
 from src.pipeline.Pipelines.registry import get_pipeline, list_pipeline_names
 from src.pipeline.Utils import DEFAULT_DATASET_NAME, load_evaluation_dataset
@@ -134,12 +135,16 @@ def parse_verify_provider(provider_arg: str):
 class PipelineEvaluationRunner:
     def __init__(self, config: PipelineEvaluationConfig):
         self.config = config
+        self.dataset = None
 
     def run(self) -> dict:
         load_local_env(self.config.env_path)
         df_eval = self._load_dataset()
         pipeline = self._build_pipeline()
-        evaluation = PIIEvaluator().evaluate_presidio(
+        label_to_presidio = (
+            self.dataset.label_to_presidio if self.dataset is not None else None
+        )
+        evaluation = PIIEvaluator(label_to_presidio).evaluate_presidio(
             df_eval,
             pipeline,
             language="vi",
@@ -151,6 +156,13 @@ class PipelineEvaluationRunner:
         return self._format_output(evaluation, rows=len(df_eval), pipeline=pipeline)
 
     def _load_dataset(self):
+        if self.config.dataset in list_dataset_names():
+            self.dataset = get_dataset(self.config.dataset)
+            return self.dataset.load(
+                split=self.config.split,
+                limit=self.config.limit,
+            )
+        self.dataset = None
         return load_evaluation_dataset(
             dataset_name=self.config.dataset,
             split=self.config.split,

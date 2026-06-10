@@ -303,3 +303,10 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Added the first prompt-injection detection checkpoint: RuleBasedPromptInjectionDetector, result/rule dataclasses, demo script, docs, and focused tests.
 - Verification: PYTHONPATH=. .venv/bin/python scripts/demo_prompt_injection.py completed successfully; PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (21 passed).
 - Residual risk: prompt-injection detector is a Vietnamese-first heuristic baseline with no dataset/benchmark yet; next step is a small labeled evaluation set and JSONL decision logging.
+
+## 2026-06-11
+- Added HoangHa/vie-pii as a gated registry-backed dataset with inline markup parsing, dataset-specific label mapping, deterministic train_main/train_val/test splits, and dataset docs.
+- Added regex_recall_vie_pii as an opt-in corpus-tuned pipeline so HoangHa-specific broad rules do not replace the default regex_recall pipeline.
+- Evaluated regex_recall and regex_recall_vie_pii on hoangha_vie_pii test and pii_masking_95k validation; wrote report/2026-06-11-hoangha-vie-pii-cross-dataset.md with metrics and recommendation.
+- Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_dataset_sampling.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (24 passed); authenticated split smoke confirmed validation aliases to train_val.
+- Residual risk: HoangHa/vie-pii labels are noisy and broad, so metrics are best interpreted as cross-dataset robustness rather than a clean production estimate.

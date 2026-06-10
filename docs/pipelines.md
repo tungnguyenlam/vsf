@@ -36,6 +36,7 @@ Current registry keys:
 | `baseline_presidio` | `BaselinePresidioPipeline` | `Models/BaselinePresidioPipeline.py` |
 | `regex_only` | `RegexOnlyPipeline` | `Models/RegexOnlyPipeline.py` |
 | `regex_recall` | `RegexRecallPipeline` | `Models/RegexRecallPipeline.py` |
+| `regex_recall_vie_pii` | `RegexRecallViePiiPipeline` | `Models/RegexRecallViePiiPipeline.py` |
 | `underthesea_ner` | `UndertheseaNerPipeline` | `Models/UndertheseaNerPipeline.py` |
 | `underthesea_regex` | `UndertheseaRegexPipeline` | `Models/UndertheseaRegexPipeline.py` |
 | `underthesea_regex_recall` | `UndertheseaRegexRecallPipeline` | `Models/UndertheseaRegexPipeline.py` |
@@ -149,3 +150,13 @@ The first resolver version is conservative: it only suppresses Underthesea
 `PERSON` candidates when left-side context strongly indicates organization,
 document, product, or code fields, while keeping candidates supported by person
 labels such as `Họ và tên` or `Khách hàng`.
+
+## Dataset-Tuned Regex Variant
+
+`regex_recall_vie_pii` is an opt-in recall variant for the gated
+`hoangha_vie_pii` dataset. It keeps the normal recall regex rules and adds broad
+patterns for HoangHa-specific labels such as company names, mixed document IDs,
+times, international phone/fax numbers, and labeled names.
+
+Do not use it as the default replacement for `regex_recall`: the broader rules
+improve `hoangha_vie_pii` test F1, but reduce precision on `pii_masking_95k`.

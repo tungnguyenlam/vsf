@@ -9,6 +9,7 @@ from src.pipeline.Datasets.sampling import (
     parse_sample_tiers,
     write_sample_manifests,
 )
+from src.pipeline.Datasets.variants import HoangHaViePiiDataset
 from src.pipeline.Utils import split_train_validation_frame
 
 
@@ -80,3 +81,34 @@ def test_train_validation_partition_is_deterministic_and_disjoint():
     assert len(train_main) == 90
     assert set(first_val["input_id"]).isdisjoint(set(train_main["input_id"]))
     assert set(first_val["input_id"]) | set(train_main["input_id"]) == set(df["input_id"])
+
+
+def test_hoangha_vie_pii_inline_markup_parser_reconstructs_spans():
+    text = (
+        "Họ tên [Nguyễn Văn An]<human_name>, email "
+        "[an@example.com]<email_address>, công ty [ABC]<company_name>."
+    )
+
+    source_text, spans = HoangHaViePiiDataset()._parse_inline_markup(text)
+
+    assert source_text == "Họ tên Nguyễn Văn An, email an@example.com, công ty ABC."
+    assert spans == [
+        {"start": 7, "end": 20, "value": "Nguyễn Văn An", "label": "human_name"},
+        {"start": 28, "end": 42, "value": "an@example.com", "label": "email_address"},
+        {"start": 52, "end": 55, "value": "ABC", "label": "company_name"},
+    ]
+
+
+def test_hoangha_vie_pii_split_partition_sizes_are_deterministic():
+    df = pd.DataFrame({"source_index": list(range(100))})
+    dataset = HoangHaViePiiDataset()
+
+    train_val = dataset._partition(df, split="train_val", random_state=42)
+    test = dataset._partition(df, split="test", random_state=42)
+    train_main = dataset._partition(df, split="train_main", random_state=42)
+
+    assert len(train_val) == 10
+    assert len(test) == 10
+    assert len(train_main) == 80
+    assert set(train_val.index).isdisjoint(set(test.index))
+    assert set(train_main.index).isdisjoint(set(train_val.index) | set(test.index))

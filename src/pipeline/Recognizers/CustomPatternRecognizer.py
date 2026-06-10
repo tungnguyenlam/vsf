@@ -82,10 +82,12 @@ class CustomPatternRecognizer(BaseRecognizer):
         device: str = "cpu",
         verbose: bool = False,
         recall_mode: bool = False,
+        vie_pii_mode: bool = False,
     ):
         super().__init__(device=device, verbose=verbose)
         self.recognizers = []
         self.recall_mode = recall_mode
+        self.vie_pii_mode = vie_pii_mode
 
     def build_patterns(self) -> list:
         patterns = [
@@ -380,6 +382,8 @@ class CustomPatternRecognizer(BaseRecognizer):
         ]
         if self.recall_mode:
             patterns.extend(self.build_recall_patterns())
+        if self.vie_pii_mode:
+            patterns.extend(self.build_vie_pii_patterns())
         return [VietnameseContextRegexRecognizer(patterns)]
 
     def build_recall_patterns(self) -> list:
@@ -544,6 +548,95 @@ class CustomPatternRecognizer(BaseRecognizer):
                 ),
                 score=0.58,
                 ignore_case=False,
+            ),
+        ]
+
+    def build_vie_pii_patterns(self) -> list:
+        """Additional broad patterns for the HoangHa/vie-pii corpus."""
+        return [
+            ContextRegexPattern(
+                name="vie_pii_labeled_person",
+                entity_type="PERSON",
+                regex=(
+                    r"(?:Họ\s*Tên|Họ\s+và\s+tên|Tên\s+(?:Khách(?:\s+Mời)?|"
+                    r"Khách\s+hàng|Bệnh\s+nhân|Liên\s+hệ)|"
+                    r"\*\*Tên\*\*)\s*[:*]?\s*"
+                    r"(?P<value>[A-ZÀ-Ỹ][A-Za-zÀ-ỹ.'’-]*(?:\s+"
+                    r"[A-ZÀ-Ỹ][A-Za-zÀ-ỹ.'’-]*){0,4})"
+                    r"(?=\s+(?:-|Ngày|Mã|Số|Email|Địa|Nghề|Giới|Date|Phone|$)|[,.;\n]|$)"
+                ),
+                score=0.6,
+                ignore_case=False,
+            ),
+            ContextRegexPattern(
+                name="vie_pii_company_name",
+                entity_type="ORGANIZATION",
+                regex=(
+                    r"(?P<value>(?:Công\s+ty|Tập\s+đoàn|Bệnh\s+viện|"
+                    r"Khách\s+sạn|Dược\s+phẩm|Trường|Đại\s+học|"
+                    r"Ngân\s+hàng|Nhà\s+thuốc)\s+"
+                    r"[A-ZÀ-Ỹ][^,.;:\n]{1,80}?)"
+                    r"(?=\s+(?:đã|có|tại|và|Mã|Số|Ngày|Địa|"
+                    r"Phone|Email|\*\*|$)|[,.;:\n]|$)"
+                ),
+                score=0.58,
+                ignore_case=False,
+            ),
+            ContextRegexPattern(
+                name="vie_pii_labeled_company_name",
+                entity_type="ORGANIZATION",
+                regex=(
+                    r"(?:Tên\s+(?:công\s+ty|khách\s+sạn|tổ\s+chức)|"
+                    r"Company\s+Name|Hotel\s+Name|"
+                    r"liên\s+hệ\s*:?)\s*[:*]?\s*"
+                    r"(?P<value>[A-ZÀ-Ỹ][A-Za-zÀ-ỹ0-9&.'’/-]*(?:\s+"
+                    r"[A-ZÀ-Ỹ][A-Za-zÀ-ỹ0-9&.'’/-]*){0,7})"
+                    r"(?=\s+(?:Mã|Số|Ngày|Địa|Project|Company|"
+                    r"\*\*|$)|[,.;:\n]|$)"
+                ),
+                score=0.56,
+                ignore_case=False,
+            ),
+            ContextRegexPattern(
+                name="vie_pii_context_id",
+                entity_type="ID",
+                regex=(
+                    r"(?:Mã\s+(?:số\s+)?(?:khách\s+hàng|hồ\s+sơ|"
+                    r"hồ\s+sơ\s+bệnh\s+án|định\s+danh\s+sinh\s+trắc\s+học|"
+                    r"nhân\s+viên|giao\s+dịch)|"
+                    r"Số\s+(?:Hồ\s+Sơ\s+Bệnh\s+Án|giấy\s+phép\s+chứng\s+nhận|"
+                    r"giấy\s+phép|thẻ\s+bảo\s+hiểm\s+y\s+tế|"
+                    r"định\s+tuyến\s+ngân\s+hàng|An\s+Sinh\s+Xã\s+Hội)|"
+                    r"employee\s+(?:id|ID)|certificate\s+license\s+number|"
+                    r"license\s+number|swift\s*bic)"
+                    r"\s*[:*]?\s*"
+                    r"(?P<value>[A-Z0-9][A-Z0-9-]{3,28}|\d{4,18})"
+                ),
+                score=0.62,
+            ),
+            ContextRegexPattern(
+                name="vie_pii_labeled_datetime",
+                entity_type="DATE_TIME",
+                regex=(
+                    r"(?:lúc|vào\s+lúc|ngày(?:/giờ)?|Ngày\s+(?:Nhận\s+Phòng|"
+                    r"Trả\s+Phòng|Hóa\s+Đơn)|Project\s+Date|Date\s+of\s+Birth|"
+                    r"thời\s+gian\s+nhận\s+phòng|kiểm\s+tra\s+lần\s+cuối\s+vào)"
+                    r"\s*[:*]?\s*"
+                    r"(?P<value>(?:\d{1,2}/\d{1,2}/\d{4})|"
+                    r"(?:\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:SA|CH|AM|PM))?))"
+                ),
+                score=0.58,
+            ),
+            ContextRegexPattern(
+                name="vie_pii_international_phone_context",
+                entity_type="PHONE_NUMBER",
+                regex=(
+                    r"(?:số\s+(?:điện\s+thoại|fax)|phone\s+number|fax|"
+                    r"gọi|liên\s+hệ(?:\s+với\s+chúng\s+tôi)?\s+(?:theo|qua))"
+                    r"\s*[:*]?\s*"
+                    r"(?P<value>(?:\+\d{1,3}[\s.-]?)?(?:\d[\s.-]?){7,15}\d)"
+                ),
+                score=0.58,
             ),
         ]
 
