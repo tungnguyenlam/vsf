@@ -253,3 +253,14 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Findings from the 500-row calibrated validation sample: 96 FP and 217 FN; FP mostly PERSON/DATE_TIME, and most FP came from regex patterns rather than Underthesea after calibration.
 - Verified focused tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_dataset_sampling.py (14 passed).
 - Residual risk: script currently uses evaluator-style overlap matching and mapped labels only; future versions could add exact-match mode or unmapped-label diagnostics.
+
+## 2026-06-10
+- Tightened deterministic Vietnamese regex recall cleanup after inspecting validation false positives for underthesea_regex_recall. Updated location/date/year/bank-account patterns in src/pipeline/Recognizers/CustomPatternRecognizer.py to remove high-volume validation false positives such as issue dates, generic years, police issuance locations, and income-like bank-account matches.
+- Verified with: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_dataset_sampling.py (14 passed).
+- Ran validation 500 and full validation for underthesea_regex_recall without touching test. Full validation after cleanup: precision 0.9659196530, recall 0.8713839847, F1 0.9162197242, TP 37412, FP 1320, FN 5522. Compared with previous full validation calibrated run, precision improved and F1 rose slightly, while recall dropped.
+- Residual risk: cleanup is precision-leaning, not recall-optimized. Remaining errors are mostly PERSON/ORGANIZATION from NER/label-boundary mismatch. Full underthesea validation run was slow and peaked around 1.97GB RSS, so keep it optional and use smaller validation slices for iteration.
+
+## 2026-06-10
+- Updated report/2026-06-10-regex-underthesea-session.md with the post-cleanup validation results, precision/recall tradeoff, per-entity metrics, runtime/RAM observation, and updated recommendation that further gains should move toward a resolver/verifier rather than broad regex tuning.
+- Verified by reviewing the report diff; no code or tests changed in this documentation-only step.
+- Residual risk: report now includes both the earlier and later Underthesea runtime observations, which should be interpreted as environment/run variance rather than a stable benchmark.

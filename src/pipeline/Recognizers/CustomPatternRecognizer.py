@@ -222,7 +222,7 @@ class CustomPatternRecognizer(BaseRecognizer):
                 entity_type="LOCATION",
                 regex=(
                     r"(?P<value>(?:Đường|Phố|Ngõ|Ấp|Buôn|Bản|Xóm|Thôn)\s+"
-                    r"[A-ZÀ-Ỹ0-9][^,.;:\n]{0,45}?)"
+                    r"(?!(?:Mã|Ngày|Số|Tên|Địa)\b)[A-ZÀ-Ỹ0-9][^,.;:\n]{0,45}?)"
                     r"(?=\s+(?:Phường|Xã|Huyện|Quận|Thị\s*xã|Thành\s*phố|"
                     r"Tỉnh|TP\.|Tên|Mã|Ngày|Số|Địa|$)|[,.;:\n]|$)"
                 ),
@@ -244,8 +244,8 @@ class CustomPatternRecognizer(BaseRecognizer):
                 name="vn_district_location",
                 entity_type="LOCATION",
                 regex=(
-                    r"(?P<value>(?:Huyện|Quận|Thị\s*xã|Thành\s*phố)\s+"
-                    r"[A-ZÀ-Ỹ0-9][^,.;:\n]{0,40}?)"
+                    r"(?<!Công an )(?P<value>(?:Huyện|Quận|Thị\s*xã|Thành\s*phố)\s+"
+                    r"[A-ZÀ-Ỹ0-9](?:(?!\s+ngày\s+cấp\b)[^,.;:\n]){0,40}?)"
                     r"(?=\s+(?:Tỉnh|TP\.|Tên|Mã|Ngày|Số|Địa|$)|[,.;:\n]|$)"
                 ),
                 score=0.74,
@@ -409,7 +409,7 @@ class CustomPatternRecognizer(BaseRecognizer):
                 name="recall_date_labeled",
                 entity_type="DATE_TIME",
                 regex=(
-                    r"ngày\s+[^0-9:\n]{0,45}?[:*]?\s*"
+                    r"ngày\s+(?!(?:cấp|cấp\s+đơn|hết\s+hạn)\b)[^0-9:\n]{0,45}?[:*]?\s*"
                     r"(?P<value>\d{1,2}/\d{1,2}/\d{4})"
                 ),
                 score=0.65,
@@ -425,7 +425,8 @@ class CustomPatternRecognizer(BaseRecognizer):
                 entity_type="DATE_TIME",
                 regex=(
                     r"(?:chuẩn\s+năm|tổng\s+hợp\s+năm|báo\s*cáo\s+năm|"
-                    r"theo\s+năm|năm)\s*(?P<value>(?:19|20)\d{2})"
+                    r"theo\s+năm|năm\s+tài\s+chính|cho\s+năm|của\s+năm)\s*"
+                    r"(?P<value>(?:19|20)\d{2})"
                 ),
                 score=0.58,
             ),
@@ -505,7 +506,7 @@ class CustomPatternRecognizer(BaseRecognizer):
                     r"giao\s+dịch\s+chứng\s+khoán|thanh\s+toán\s+số)|"
                     r"số\s+tài\s*khoản\s+(?:nhận\s+lương|người\s+nhận|"
                     r"liên\s+kết|tiết\s+kiệm)|số\s+ví\s+thanh\s+toán|"
-                    r"ví\s+thanh\s+toán|Khách\s+hàng)"
+                    r"ví\s+thanh\s+toán)"
                     r"\s*[:*]?\s*(?P<value>\d(?:[ -]?\d){7,18})"
                 ),
                 score=0.7,

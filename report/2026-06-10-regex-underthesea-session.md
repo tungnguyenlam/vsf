@@ -313,3 +313,133 @@ Underthesea also paid off, but in a different way: it proved that NER can recove
 many PERSON spans regex misses, raising validation F1 to 0.9137. However, it is
 slow and adds many PERSON false positives, so it should remain an experimental
 high-recall candidate until its false positives are better controlled.
+
+## Addendum: Validation Cleanup After Underthesea Error Inspection
+
+After the initial Underthesea comparison, we inspected false predictions from the
+validation run and made a narrow deterministic cleanup pass. The goal was not to
+optimize on the leaked test split. We treated the earlier test look as already
+known leakage, then continued selection and inspection on validation only.
+
+The high-value false-positive classes were mostly from recall-oriented regex
+rules, not from Underthesea itself:
+
+- `recall_date_labeled` was matching `ngày cấp`, `ngày cấp đơn`, and
+  `ngày hết hạn` contexts as `DATE_TIME`.
+- `recall_context_year` was too broad and matched generic bare `năm 2015` style
+  references.
+- `vn_street_like_location` sometimes treated field names such as `Mã`, `Ngày`,
+  `Số`, `Tên`, and `Địa` as location starts.
+- `vn_district_location` could consume police issuance contexts such as
+  `Công an Huyện...` and spans containing `ngày cấp`.
+- `recall_bank_account` used `Khách hàng` as a trigger, which could turn nearby
+  income-like numeric text into `BANK_ACCOUNT`.
+
+We tightened those rules in
+`src/pipeline/Recognizers/CustomPatternRecognizer.py`.
+
+### 500-row Validation Check
+
+Before cleanup, the calibrated 500-row validation sample had:
+
+| metric | value |
+|---|---:|
+| precision | 0.9502 |
+| recall | 0.8941 |
+| F1 | 0.9213 |
+| TP | 1,833 |
+| FP | 96 |
+| FN | 217 |
+
+After cleanup:
+
+| metric | value |
+|---|---:|
+| precision | 0.9679 |
+| recall | 0.8839 |
+| F1 | 0.9240 |
+| TP | 1,812 |
+| FP | 60 |
+| FN | 238 |
+
+This confirmed the direction: fewer false positives and slightly better F1, with
+a measurable recall tradeoff.
+
+### Full Validation Rerun After Cleanup
+
+Full validation after cleanup:
+
+| metric | value |
+|---|---:|
+| precision | 0.9659 |
+| recall | 0.8714 |
+| F1 | 0.9162 |
+| TP | 37,412 |
+| FP | 1,320 |
+| FN | 5,522 |
+
+Compared with the previous full validation run:
+
+| metric | before | after |
+|---|---:|---:|
+| precision | 0.9481 | 0.9659 |
+| recall | 0.8817 | 0.8714 |
+| F1 | 0.9137 | 0.9162 |
+| TP | 37,854 | 37,412 |
+| FP | 2,074 | 1,320 |
+| FN | 5,080 | 5,522 |
+
+Per-entity full validation after cleanup:
+
+| entity | precision | recall | F1 | TP | FP | FN |
+|---|---:|---:|---:|---:|---:|---:|
+| BANK_ACCOUNT | 1.0000 | 0.7921 | 0.8840 | 766 | 0 | 201 |
+| ID | 0.9974 | 0.8961 | 0.9441 | 4,269 | 11 | 495 |
+| PERSON | 0.8857 | 0.7431 | 0.8082 | 6,237 | 805 | 2,156 |
+| LOCATION | 0.9897 | 0.9681 | 0.9788 | 15,962 | 166 | 526 |
+| DATE_TIME | 0.9870 | 0.8614 | 0.9199 | 5,221 | 69 | 840 |
+| PHONE_NUMBER | 0.9517 | 1.0000 | 0.9753 | 1,301 | 66 | 0 |
+| ORGANIZATION | 0.9336 | 0.6853 | 0.7904 | 2,839 | 202 | 1,304 |
+| EMAIL_ADDRESS | 0.9988 | 1.0000 | 0.9994 | 817 | 1 | 0 |
+
+The cleanup reduced false positives by 754 on full validation, but increased
+false negatives by 442. This is a precision-leaning improvement, not a recall
+optimization.
+
+### Updated Runtime and RAM Observation
+
+The later full validation rerun with `underthesea_regex_recall` was much slower
+than the earlier measured run:
+
+- runtime: about 3,292.69s real time, or roughly 54m53s
+- max RSS: about 1.97 GB
+- peak memory footprint: about 609 MB
+
+RAM is still acceptable for a 16 GB development machine, but runtime is now the
+main operational concern. Underthesea should stay optional, with routine
+iteration done on smaller validation samples.
+
+### Updated Interpretation
+
+The deterministic cleanup paid off, but the remaining error distribution is now
+less attractive for hand-written regex work. The easy false positives from
+DATE_TIME, BANK_ACCOUNT, and generic location patterns are mostly gone. The
+remaining failures are dominated by PERSON and ORGANIZATION, where many examples
+look like NER boundary issues, entity-type disagreement, or dataset annotation
+mismatch.
+
+That means the next meaningful improvement probably should not be another broad
+regex-tuning pass. Better next steps are:
+
+1. Add a resolver/verifier layer that can use features from Presidio candidates,
+   recognizer source, score, entity type, and local context.
+2. Tune that resolver on small targeted validation slices, not full train and
+   not test.
+3. Use LLM checks sparingly to explain ambiguous validation errors and turn those
+   explanations into deterministic resolver features.
+
+Presidio itself does not learn from examples automatically in the way we need
+here. It gives us recognizers, scores, and conflict resolution hooks. The
+self-improving part has to be built around it: mine errors, convert repeated
+failure modes into recognizer or resolver changes, rerun on validation, and keep
+test untouched for final reporting.
