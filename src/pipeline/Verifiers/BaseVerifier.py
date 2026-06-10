@@ -12,9 +12,9 @@ class BaseVerifier(ABC):
     recognizer produced it and at what confidence) — and returns an adjudicated
     list: false positives dropped, mislabeled entity types corrected.
 
-    Implementations must never raise into the pipeline. On any failure they
-    should fall back to returning ``results`` unchanged so evaluation runs are
-    not interrupted by transient model/network errors.
+    Implementations should default to returning ``results`` unchanged on failure
+    for interactive use, but may expose a strict mode for evaluation where
+    configuration/routing errors should stop the run.
     """
 
     @abstractmethod

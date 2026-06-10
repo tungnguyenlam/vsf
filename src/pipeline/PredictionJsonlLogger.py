@@ -9,6 +9,7 @@ class PredictionJsonlLogger:
 
     def __init__(self, path):
         self.path = Path(path)
+        self.readable_path = self.path.with_suffix(".readable.json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def log_prediction(
@@ -45,6 +46,17 @@ class PredictionJsonlLogger:
     def log_record(self, record):
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._write_readable_record(record)
+
+    def _write_readable_record(self, record):
+        records = []
+        if self.readable_path.exists():
+            with self.readable_path.open(encoding="utf-8") as handle:
+                records = json.load(handle)
+        records.append(record)
+        with self.readable_path.open("w", encoding="utf-8") as handle:
+            json.dump(records, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
 
     def build_record(
         self,

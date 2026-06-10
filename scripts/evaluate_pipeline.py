@@ -9,6 +9,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.pipeline.Evaluator import PIIEvaluator
+from src.pipeline.BasePipeline import _DEFAULT_PREDICTION_LOG_PATH_SENTINEL
 from src.pipeline.Pipelines import get_pipeline, list_pipeline_names
 from src.pipeline.Utils import DEFAULT_DATASET_NAME, load_evaluation_dataset
 
@@ -25,7 +26,11 @@ def parse_args():
     parser.add_argument("--split", default="train", help="Dataset split: train, val, test, or all.")
     parser.add_argument("--limit", type=int, default=None, help="Rows to sample per selected split.")
     parser.add_argument("--score-threshold", type=float, default=0.0)
-    parser.add_argument("--log-path", default=str(PROJECT_ROOT / "output" / "predictions.jsonl"))
+    parser.add_argument(
+        "--log-path",
+        default=None,
+        help="JSONL log path. Defaults to output/predictions/<timestamp>/predictions.jsonl.",
+    )
     parser.add_argument("--no-log", action="store_true", help="Disable JSONL prediction logging.")
     parser.add_argument("--include-source-text", action="store_true")
     parser.add_argument("--per-label", action="store_true", help="Include fine-grained label recall.")
@@ -47,16 +52,22 @@ def parse_args():
     )
     parser.add_argument(
         "--verify-provider",
-        default="deepseek",
-        help="Pin the --verify pass to one OpenRouter provider slug for reproducible eval "
-        "(default: deepseek, first-party). Use 'none' to let OpenRouter load-balance.",
+        default="require_parameters",
+        help="OpenRouter provider routing for --verify. Default 'require_parameters' only routes "
+        "to endpoints that support strict structured output. Use a provider slug such as "
+        "'novita' to hard-pin for reproducible eval, or 'none' to let OpenRouter load-balance.",
     )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    log_path = None if args.no_log else Path(args.log_path)
+    if args.no_log:
+        log_path = None
+    elif args.log_path is None:
+        log_path = _DEFAULT_PREDICTION_LOG_PATH_SENTINEL
+    else:
+        log_path = Path(args.log_path)
 
     df_eval = load_evaluation_dataset(
         dataset_name=args.dataset,
@@ -67,10 +78,18 @@ def main():
     if args.verify:
         from src.pipeline.Verifiers import LLMVerifier
 
-        pin = args.verify_provider
-        provider = None if pin.lower() in ("none", "any", "off", "") else LLMVerifier.pin_provider(pin)
+        provider_arg = args.verify_provider.lower()
+        if provider_arg in ("none", "any", "off", ""):
+            provider = None
+        elif provider_arg in ("require_parameters", "required", "strict"):
+            provider = {"require_parameters": True}
+        else:
+            provider = LLMVerifier.pin_provider(args.verify_provider)
         verifier = LLMVerifier(
-            model=args.verify_model, effort=args.verify_effort, provider=provider
+            model=args.verify_model,
+            effort=args.verify_effort,
+            provider=provider,
+            raise_on_error=True,
         )
 
     pipeline = get_pipeline(
@@ -92,6 +111,8 @@ def main():
         return_per_label=args.per_label,
     )
 
+    resolved_log_path = pipeline.prediction_log_path if pipeline.prediction_log_path is not None else None
+
     if args.per_label:
         overall, per_entity, per_label = evaluation
         output = {
@@ -101,7 +122,7 @@ def main():
             "overall": overall,
             "per_entity": per_entity,
             "per_label": per_label,
-            "log_path": str(log_path) if log_path else None,
+            "log_path": str(resolved_log_path) if resolved_log_path else None,
         }
     else:
         overall, per_entity = evaluation
@@ -111,7 +132,7 @@ def main():
             "split": args.split,
             "overall": overall,
             "per_entity": per_entity,
-            "log_path": str(log_path) if log_path else None,
+            "log_path": str(resolved_log_path) if resolved_log_path else None,
         }
 
     print(json.dumps(output, ensure_ascii=False, indent=2))

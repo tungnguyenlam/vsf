@@ -50,13 +50,14 @@ def read_jsonl(path):
 
 
 def test_default_log_path_writes_to_output_folder(tmp_path, monkeypatch):
-    log_path = tmp_path / "output" / "predictions.jsonl"
-    monkeypatch.setattr(base_pipeline, "DEFAULT_PREDICTION_LOG_PATH", log_path)
+    log_dir = tmp_path / "output" / "predictions"
+    monkeypatch.setattr(base_pipeline, "DEFAULT_PREDICTION_LOG_DIR", log_dir)
 
     pipeline = PIIPipeline(analyzer=FakeAnalyzer(), run_id="run-default")
 
     pipeline.predict("email user@example.com", language="vi")
 
+    log_path = log_dir / "run-default" / "predictions.jsonl"
     records = read_jsonl(log_path)
     assert len(records) == 1
     assert records[0]["run_id"] == "run-default"
@@ -114,6 +115,11 @@ def test_single_input_writes_jsonl_record(tmp_path):
     assert result["score_context_improvement"] == 0.35
     assert result["supportive_context"] == "email"
     assert result["validation"] is None
+
+    readable_path = log_path.with_suffix(".readable.json")
+    readable_records = json.loads(readable_path.read_text(encoding="utf-8"))
+    assert readable_records == records
+    assert "\n  {" in readable_path.read_text(encoding="utf-8")
 
 
 def test_batch_input_writes_one_record_per_input(tmp_path):

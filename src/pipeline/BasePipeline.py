@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DEFAULT_PREDICTION_LOG_PATH = Path(__file__).resolve().parents[2] / "output" / "predictions.jsonl"
+DEFAULT_PREDICTION_LOG_DIR = Path(__file__).resolve().parents[2] / "output" / "predictions"
+DEFAULT_PREDICTION_LOG_PATH = DEFAULT_PREDICTION_LOG_DIR / "predictions.jsonl"
 _DEFAULT_PREDICTION_LOG_PATH_SENTINEL = object()
 
 class PIIPipeline(BaseModel):
@@ -39,9 +40,9 @@ class PIIPipeline(BaseModel):
         self.pipeline_name = pipeline_name
         self.default_language = default_language
         self.default_score_threshold = default_score_threshold
-        self.run_id = run_id or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        self.run_id = run_id or datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
         self.prediction_log_path = (
-            DEFAULT_PREDICTION_LOG_PATH
+            DEFAULT_PREDICTION_LOG_DIR / self.run_id / "predictions.jsonl"
             if prediction_log_path_omitted
             else prediction_log_path
         )

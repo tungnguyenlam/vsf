@@ -33,6 +33,17 @@ Each evaluation dataset is a `BaseDataset` subclass under `src/pipeline/Datasets
 
 For every dataset, also write `docs/datasets/<name>.md` documenting: what it is, columns/format, the span format, the full label taxonomy, and the mismatch vs our Presidio entity types (which labels map, which are dropped). Add it to the index in `docs/datasets/README.md`.
 
+## Cost and sampling discipline
+
+The total paid LLM budget for this project is small ($2-$10 from start to finish). Treat LLM calls as scarce experiment budget, not routine evaluation infrastructure.
+
+- Do not run the LLM verifier over the full train split. Train is for cheap non-LLM work.
+- Use a fixed train/dev sample of 5,000 rows for routine pipeline iteration, regex work, recognizer comparison, and cheap evaluation. Keep sampling deterministic (`random_state=42`) and persist selected `input_id`s with `scripts/create_sample_manifests.py` when exact repeatability across code changes matters.
+- When using the LLM verifier to adjust the pipeline, sample much smaller: 50 rows for smoke checks, 100-300 for prompt/rule iteration, 500 for serious A/B checks, and 1,000 only when deciding between near-final candidates.
+- Prefer targeted LLM samples over blind random samples: rows with recognizer candidates, many numeric spans, regex predictions but no mapped ground truth, type mismatches, or BANK_ACCOUNT/ID/PHONE ambiguity. The verifier should teach us reusable deterministic fixes.
+- Use LLM verifier A/B runs only to answer a specific question, e.g. pipeline without verifier vs the same pipeline with verifier on the same sample. Keep JSONL logs for paid runs and avoid rerunning unchanged configs.
+- Reserve full verifier runs for the test split only, and only near final reporting or when the user explicitly asks. Do not spend verifier budget on train-scale sweeps.
+
 ## WORKLOG.md
 
 After finishing a task, append a short entry to `WORKLOG.md` at the repo root (date, what changed, what was verified, any residual risk).

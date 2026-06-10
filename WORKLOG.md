@@ -69,3 +69,38 @@ NEXT STEPS to resolve (pick one):
 3. SAFETY FIX regardless: the silent no-op on 404 is dangerous for eval integrity. Consider making LLMVerifier surface/raise routing/auth errors (4xx) instead of silently no-oping, OR have eval report the no-op count so corrupted runs are visible. Currently a misconfigured provider yields plausible-but-wrong metrics with no signal.
 
 Decision still owned by user: which provider/quant to pin to (they can see prices+providers in dashboard). User chose "pin DeepSeek first-party" but that endpoint appears incompatible with strict structured output — so this needs revisiting.
+
+## 2026-06-10 — LLMVerifier provider routing safety fix
+- Changed LLMVerifier default OpenRouter provider routing from hard-pinned first-party DeepSeek to {"require_parameters": true}, so strict json_schema calls only route to endpoints that support the requested parameters. Explicit hard pinning remains available via LLMVerifier.pin_provider("slug").
+- Added raise_on_error to LLMVerifier. Default interactive behavior still falls back to no-op, but scripts/evaluate_pipeline.py now enables raise_on_error=True so routing/auth/schema failures stop eval instead of silently corrupting metrics.
+- Updated --verify-provider default/help: require_parameters is default; provider slug hard-pins; none/any/off disables provider routing.
+- Added focused tests for provider request payloads, keep/drop/relabel behavior, no-op fallback, and strict raise behavior.
+- Verified: py_compile passed for changed Python files. Could not run pytest/evaluate help because local .venv lacks pytest, pip, presidio_analyzer, and spacy; system shell also lacks python/pytest commands.
+- Residual risk: no live OpenRouter diagnostic was run; need one later to choose a reproducible structured-output-capable provider slug for benchmark mode.
+
+## 2026-06-10 — LLMVerifier provider routing safety fix: verification follow-up
+- Bootstrapped pip into .venv with ensurepip and installed missing local test/runtime dependencies: pytest, presidio-analyzer, presidio-anonymizer, spacy, openai.
+- Verified: .venv/bin/python -m pytest tests/test_llm_verifier.py -q -> 5 passed. Existing lightweight tests -> 12 passed. Full suite -> 17 passed, 1 skipped. evaluate_pipeline.py --help renders the updated --verify-provider help.
+- Residual risk unchanged: no live OpenRouter diagnostic was run; still need to choose a reproducible structured-output-capable provider slug for benchmark mode.
+
+## 2026-06-10 — AGENTS.md: LLM budget and sampling discipline
+- Added cost policy for the project-wide $2-$10 paid LLM budget.
+- Hardened future-agent guidance: full train verifier runs are forbidden by default; use fixed 5k train/dev sample for cheap iteration; use 50/100-300/500/1000-row verifier tiers for smoke, iteration, A/B, and near-final decisions.
+- Added preference for targeted verifier samples (candidate rows, numeric ambiguity, type mismatches, regex FP risk) and preserving JSONL logs for paid runs.
+- Verified: AGENTS.md text reviewed; no code changes.
+- Residual risk: this is policy only; no helper script yet persists a canonical 5k input_id sample.
+
+## 2026-06-10 — Deterministic sample manifest helper
+- Added src/pipeline/Datasets/sampling.py with default cost-policy sample tiers: train_dev_5k, llm_smoke_50, llm_iter_300, llm_ab_500, llm_final_1000.
+- Added scripts/create_sample_manifests.py to load a registered dataset split and write deterministic input_id JSON manifests under data/sample_ids/ by default. Supports custom --tier NAME:SIZE, --random-state, and --overwrite.
+- Updated AGENTS.md cost guidance to point future agents at the helper script.
+- Added tests/test_dataset_sampling.py covering tier parsing, deterministic/capped sampling, manifest writing, and overwrite protection.
+- Verified: py_compile passed for new files; script --help renders; tests/test_dataset_sampling.py -> 4 passed; full suite -> 21 passed, 1 skipped.
+- Residual risk: actual pii_masking_95k manifests were not generated in this task to avoid an unsolicited private HF dataset download.
+
+## 2026-06-10
+- Changed prediction logging defaults to write each implicit run under `output/predictions/<run_id>/predictions.jsonl`, with timestamp-style run ids for new runs.
+- Added an adjacent `predictions.readable.json` pretty-printed mirror for manual VSCode inspection while keeping machine JSONL one-record-per-line.
+- Updated evaluation CLI default logging path handling and focused logging tests.
+- Verified with `PYTHONPATH=. .venv/bin/pytest tests/test_prediction_jsonl_logging.py tests/test_pipeline_registry_and_evaluation.py` (12 passed).
+- Residual risk: the readable JSON mirror rewrites the accumulated records on each append, so very large logs may be slower than JSONL-only logging.

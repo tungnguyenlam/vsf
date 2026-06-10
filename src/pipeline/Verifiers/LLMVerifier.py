@@ -18,11 +18,10 @@ logger = logging.getLogger(__name__)
 # (Qwen), or a direct OpenAI endpoint without touching call-site logic.
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
-# OpenRouter provider slug to pin by default, paired with DEFAULT_MODEL: DeepSeek's
-# first-party endpoint. Pinning keeps quantization/behavior fixed across calls
-# (reproducible eval); without it OpenRouter load-balances across all providers.
-# If you swap DEFAULT_MODEL to another vendor (e.g. a Qwen slug), change this too.
-DEFAULT_PROVIDER = "deepseek"
+# OpenRouter provider routing default. Strict structured output is required for
+# the verifier, so the default only routes to endpoints that support requested
+# parameters. For reproducible benchmark runs, pass pin_provider("provider-slug").
+DEFAULT_PROVIDER = {"require_parameters": True}
 # Env vars checked in order for the API key. OpenRouter first, OpenAI as fallback.
 API_KEY_ENV_VARS = ("OPENROUTER_API_KEY", "OPENAI_API_KEY")
 
@@ -105,8 +104,9 @@ class LLMVerifier(BaseVerifier):
 
     Sends the candidate spans (with provenance + local context) to an
     OpenAI-compatible Chat Completions endpoint (OpenRouter by default) and
-    applies its keep/drop/re-label decisions. Any error degrades to a no-op so
-    evaluation runs are never interrupted.
+    applies its keep/drop/re-label decisions. By default, errors degrade to a
+    no-op for interactive use; evaluation should set ``raise_on_error=True`` so
+    routing/auth/schema failures stop the run instead of corrupting metrics.
 
     The provider is just configuration: ``model``/``base_url``/``api_key`` select
     the backend. Defaults target DeepSeek V4 Flash on OpenRouter; point them at a
@@ -122,11 +122,13 @@ class LLMVerifier(BaseVerifier):
         max_tokens: output cap for the decisions response.
         temperature: sampling temperature (0 for deterministic adjudication).
         provider: OpenRouter provider-routing object passed through as
-            `extra_body.provider`. Defaults to pinning DEFAULT_PROVIDER (DeepSeek
-            first-party) for reproducible evaluation. Pass an explicit dict to
-            customize, e.g. {"quantizations": ["bf16"]}, or provider=None to opt
-            out and let OpenRouter load-balance across all providers. See
-            pin_provider() for the single-provider builder.
+            `extra_body.provider`. Defaults to ``{"require_parameters": True}``
+            so OpenRouter only routes to endpoints that support strict structured
+            output. Pass pin_provider("slug") for a reproducible single-provider
+            benchmark, an explicit dict for custom OpenRouter routing, or
+            provider=None to opt out and let OpenRouter load-balance.
+        raise_on_error: raise model/API/parse errors instead of falling back to a
+            no-op. Use this for evaluation integrity.
         client: optional pre-built OpenAI client (else lazily created).
     """
 
@@ -140,6 +142,7 @@ class LLMVerifier(BaseVerifier):
         max_tokens: int = 8192,
         temperature: float = 0.0,
         provider=_PROVIDER_UNSET,
+        raise_on_error: bool = False,
         client=None,
     ):
         self.model = model
@@ -149,11 +152,8 @@ class LLMVerifier(BaseVerifier):
         self.effort = effort
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self.provider = (
-            self.pin_provider(DEFAULT_PROVIDER)
-            if provider is _PROVIDER_UNSET
-            else provider
-        )
+        self.provider = DEFAULT_PROVIDER if provider is _PROVIDER_UNSET else provider
+        self.raise_on_error = raise_on_error
         self._client = client
 
     @staticmethod
@@ -161,9 +161,9 @@ class LLMVerifier(BaseVerifier):
         """Build an OpenRouter provider-routing object pinned to one provider.
 
         With allow_fallbacks=False the call sticks to `name` and errors if it is
-        unavailable (the verifier then no-ops for that row and logs a warning) —
-        the right choice for reproducible evaluation. Set allow_fallbacks=True to
-        prefer `name` but tolerate outages.
+        unavailable or does not support required parameters. In evaluation,
+        combine this with raise_on_error=True so bad routing stops the run. Set
+        allow_fallbacks=True to prefer `name` but tolerate outages.
         """
         return {"order": [name], "allow_fallbacks": allow_fallbacks}
 
@@ -214,7 +214,9 @@ class LLMVerifier(BaseVerifier):
 
         try:
             decisions = self._adjudicate(text, candidates)
-        except Exception as exc:  # never break the pipeline on a model/network error
+        except Exception as exc:
+            if self.raise_on_error:
+                raise
             logger.warning("LLMVerifier falling back to no-op: %s", exc)
             return results
 
