@@ -5,4 +5,4 @@ python-dotenv
 datasets
 underthesea
 matplotlib
-anthropic
+openai

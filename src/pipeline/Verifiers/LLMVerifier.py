@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import List, Optional
 
 from presidio_analyzer import RecognizerResult
@@ -8,6 +9,26 @@ from src.pipeline.Verifiers.BaseVerifier import BaseVerifier
 
 
 logger = logging.getLogger(__name__)
+
+
+# --- Provider / model configuration (single source of truth) -----------------
+# The verifier talks to any OpenAI-compatible Chat Completions endpoint. We
+# default to OpenRouter so the model/provider is a one-line swap: change
+# DEFAULT_MODEL (or pass `model=`/`base_url=`) to move between DeepSeek, Alibaba
+# (Qwen), or a direct OpenAI endpoint without touching call-site logic.
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
+# OpenRouter provider slug to pin by default, paired with DEFAULT_MODEL: DeepSeek's
+# first-party endpoint. Pinning keeps quantization/behavior fixed across calls
+# (reproducible eval); without it OpenRouter load-balances across all providers.
+# If you swap DEFAULT_MODEL to another vendor (e.g. a Qwen slug), change this too.
+DEFAULT_PROVIDER = "deepseek"
+# Env vars checked in order for the API key. OpenRouter first, OpenAI as fallback.
+API_KEY_ENV_VARS = ("OPENROUTER_API_KEY", "OPENAI_API_KEY")
+
+# Sentinel: distinguishes "caller said nothing" (use DEFAULT_PROVIDER pin) from
+# an explicit provider=None (opt out of pinning -> let OpenRouter load-balance).
+_PROVIDER_UNSET = object()
 
 
 # Presidio entity types this pipeline targets. The adjudicator may re-label a
@@ -80,39 +101,86 @@ DECISION_SCHEMA = {
 
 
 class LLMVerifier(BaseVerifier):
-    """Claude-backed adjudication pass over resolved Presidio results.
+    """LLM adjudication pass over resolved Presidio results.
 
-    Sends the candidate spans (with provenance + local context) to Claude and
+    Sends the candidate spans (with provenance + local context) to an
+    OpenAI-compatible Chat Completions endpoint (OpenRouter by default) and
     applies its keep/drop/re-label decisions. Any error degrades to a no-op so
     evaluation runs are never interrupted.
 
+    The provider is just configuration: ``model``/``base_url``/``api_key`` select
+    the backend. Defaults target DeepSeek V4 Flash on OpenRouter; point them at a
+    Qwen slug or another OpenAI-compatible base URL to swap without code changes.
+
     Args:
-        model: Claude model id.
+        model: model id (e.g. "deepseek/deepseek-v4-flash", "qwen/qwen3-max").
+        base_url: OpenAI-compatible API base URL.
+        api_key: API key; falls back to OPENROUTER_API_KEY / OPENAI_API_KEY.
         context_window: characters of context to include each side of a span.
-        effort: thinking/effort level for the adjudication call.
+        effort: optional reasoning effort ("low"/"medium"/"high"); None disables
+            reasoning (correct for non-reasoning flash models).
         max_tokens: output cap for the decisions response.
-        client: optional pre-built anthropic.Anthropic client (else lazily created).
+        temperature: sampling temperature (0 for deterministic adjudication).
+        provider: OpenRouter provider-routing object passed through as
+            `extra_body.provider`. Defaults to pinning DEFAULT_PROVIDER (DeepSeek
+            first-party) for reproducible evaluation. Pass an explicit dict to
+            customize, e.g. {"quantizations": ["bf16"]}, or provider=None to opt
+            out and let OpenRouter load-balance across all providers. See
+            pin_provider() for the single-provider builder.
+        client: optional pre-built OpenAI client (else lazily created).
     """
 
     def __init__(
         self,
-        model: str = "claude-opus-4-8",
+        model: str = DEFAULT_MODEL,
+        base_url: str = DEFAULT_BASE_URL,
+        api_key: Optional[str] = None,
         context_window: int = 40,
-        effort: str = "low",
+        effort: Optional[str] = None,
         max_tokens: int = 8192,
+        temperature: float = 0.0,
+        provider=_PROVIDER_UNSET,
         client=None,
     ):
         self.model = model
+        self.base_url = base_url
+        self.api_key = api_key
         self.context_window = context_window
         self.effort = effort
         self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.provider = (
+            self.pin_provider(DEFAULT_PROVIDER)
+            if provider is _PROVIDER_UNSET
+            else provider
+        )
         self._client = client
+
+    @staticmethod
+    def pin_provider(name: str, allow_fallbacks: bool = False) -> dict:
+        """Build an OpenRouter provider-routing object pinned to one provider.
+
+        With allow_fallbacks=False the call sticks to `name` and errors if it is
+        unavailable (the verifier then no-ops for that row and logs a warning) —
+        the right choice for reproducible evaluation. Set allow_fallbacks=True to
+        prefer `name` but tolerate outages.
+        """
+        return {"order": [name], "allow_fallbacks": allow_fallbacks}
+
+    def _resolve_api_key(self) -> Optional[str]:
+        if self.api_key:
+            return self.api_key
+        for env_var in API_KEY_ENV_VARS:
+            value = os.getenv(env_var)
+            if value:
+                return value
+        return None
 
     def _get_client(self):
         if self._client is None:
-            import anthropic
+            from openai import OpenAI
 
-            self._client = anthropic.Anthropic()
+            self._client = OpenAI(base_url=self.base_url, api_key=self._resolve_api_key())
         return self._client
 
     def _build_candidate(self, text: str, idx: int, result: RecognizerResult) -> dict:
@@ -158,25 +226,39 @@ class LLMVerifier(BaseVerifier):
             {"source_text": text, "candidates": candidates},
             ensure_ascii=False,
         )
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            thinking={"type": "adaptive"},
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
+        # The system prompt is a stable prefix; DeepSeek caches it automatically
+        # and OpenRouter's sticky routing keeps the cache warm. No cache_control
+        # field is needed for OpenAI-compatible providers.
+        request = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_payload},
             ],
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": DECISION_SCHEMA},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "pii_decisions",
+                    "strict": True,
+                    "schema": DECISION_SCHEMA,
+                },
             },
-            messages=[{"role": "user", "content": user_payload}],
-        )
-        text_block = next(b.text for b in response.content if b.type == "text")
-        return json.loads(text_block)
+        }
+        extra_body = {}
+        if self.effort:
+            # OpenRouter's unified reasoning control; ignored by non-reasoning models.
+            extra_body["reasoning"] = {"effort": self.effort}
+        if self.provider:
+            # Pin/scope the OpenRouter provider (e.g. for reproducible evaluation).
+            extra_body["provider"] = self.provider
+        if extra_body:
+            request["extra_body"] = extra_body
+
+        response = client.chat.completions.create(**request)
+        content = response.choices[0].message.content
+        return json.loads(content)
 
     def _apply(
         self, results: List[RecognizerResult], decisions: dict

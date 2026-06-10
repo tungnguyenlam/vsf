@@ -1,32 +1,12 @@
 from collections import defaultdict
 from tqdm.auto import tqdm
 
-DEFAULT_LABEL_TO_PRESIDIO = {
-    "HO_VA_TEN": "PERSON",
-    "HO": "PERSON",
-    "TEN": "PERSON",
-    "TEN_DEM": "PERSON",
-    "NGAY": "DATE_TIME",
-    "NGAY_SINH": "DATE_TIME",
-    "THANG": "DATE_TIME",
-    "NAM": "DATE_TIME",
-    "SO_DIEN_THOAI": "PHONE_NUMBER",
-    "DIA_CHI_EMAIL": "EMAIL_ADDRESS",
-    "THANH_PHO_TINH": "LOCATION",
-    "QUAN_HUYEN": "LOCATION",
-    "PHUONG_XA": "LOCATION",
-    "DUONG_PHO": "LOCATION",
-    "SO_NHA_TOA_NHA": "LOCATION",
-    "QUOC_GIA": "LOCATION",
-    "SO_TAI_KHOAN": "BANK_ACCOUNT",
-    "TEN_TO_CHUC": "ORGANIZATION",
-    "TEN_NGAN_HANG": "ORGANIZATION",
-    "MA_NHAN_VIEN": "ID",
-    "MA_GIAO_DICH": "ID",
-    "MA_SO_THUE": "ID",
-    "SO_CCCD_CMND": "ID",
-    "SO_HO_CHIEU": "ID",
-}
+# Default label->type mapping is owned by the dataset (single source of truth).
+# It targets the Vietnamese pii_masking_95k dataset; pass a different dataset's
+# `label_to_presidio` to PIIEvaluator when evaluating another corpus.
+from src.pipeline.Datasets.variants import (
+    VI_PII_LABEL_TO_PRESIDIO as DEFAULT_LABEL_TO_PRESIDIO,
+)
 
 class PIIEvaluator:
     """Modular evaluator measuring precision, recall, and F1 counts for PII detection."""

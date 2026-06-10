@@ -32,18 +32,24 @@ def parse_args():
     parser.add_argument(
         "--verify",
         action="store_true",
-        help="Run an LLM adjudication pass over recognizer results (requires ANTHROPIC_API_KEY).",
+        help="Run an LLM adjudication pass over recognizer results (requires OPENROUTER_API_KEY).",
     )
     parser.add_argument(
         "--verify-model",
-        default="claude-opus-4-8",
-        help="Claude model id for the --verify adjudication pass.",
+        default="deepseek/deepseek-v4-flash",
+        help="OpenAI-compatible model id for the --verify adjudication pass (e.g. a DeepSeek or Qwen slug on OpenRouter).",
     )
     parser.add_argument(
         "--verify-effort",
-        default="low",
-        choices=["low", "medium", "high", "max"],
-        help="Effort level for the --verify adjudication pass.",
+        default=None,
+        choices=["low", "medium", "high"],
+        help="Optional reasoning effort for the --verify pass. Omit for non-reasoning flash models.",
+    )
+    parser.add_argument(
+        "--verify-provider",
+        default="deepseek",
+        help="Pin the --verify pass to one OpenRouter provider slug for reproducible eval "
+        "(default: deepseek, first-party). Use 'none' to let OpenRouter load-balance.",
     )
     return parser.parse_args()
 
@@ -61,7 +67,11 @@ def main():
     if args.verify:
         from src.pipeline.Verifiers import LLMVerifier
 
-        verifier = LLMVerifier(model=args.verify_model, effort=args.verify_effort)
+        pin = args.verify_provider
+        provider = None if pin.lower() in ("none", "any", "off", "") else LLMVerifier.pin_provider(pin)
+        verifier = LLMVerifier(
+            model=args.verify_model, effort=args.verify_effort, provider=provider
+        )
 
     pipeline = get_pipeline(
         args.pipeline,
