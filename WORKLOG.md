@@ -296,3 +296,10 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Added scripts/demo_pii_checkpoint.py to demonstrate regex_recall detection and Presidio anonymization on Vietnamese sample texts.
 - Verification: PYTHONPATH=. .venv/bin/python scripts/demo_pii_checkpoint.py completed successfully; PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
 - Residual risk: the demo consolidates exact duplicate display spans for readability, but does not change the underlying pipeline behavior.
+
+## 2026-06-11
+- Pushed the completed PII checkpoint commits to origin/master.
+- Ran scripts/demo_pii_checkpoint.py through the project virtualenv and reviewed report/pii-checkpoint-summary.md for presentation readiness.
+- Added the first prompt-injection detection checkpoint: RuleBasedPromptInjectionDetector, result/rule dataclasses, demo script, docs, and focused tests.
+- Verification: PYTHONPATH=. .venv/bin/python scripts/demo_prompt_injection.py completed successfully; PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (21 passed).
+- Residual risk: prompt-injection detector is a Vietnamese-first heuristic baseline with no dataset/benchmark yet; next step is a small labeled evaluation set and JSONL decision logging.
