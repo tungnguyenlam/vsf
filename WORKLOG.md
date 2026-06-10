@@ -310,3 +310,8 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Evaluated regex_recall and regex_recall_vie_pii on hoangha_vie_pii test and pii_masking_95k validation; wrote report/2026-06-11-hoangha-vie-pii-cross-dataset.md with metrics and recommendation.
 - Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_dataset_sampling.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (24 passed); authenticated split smoke confirmed validation aliases to train_val.
 - Residual risk: HoangHa/vie-pii labels are noisy and broad, so metrics are best interpreted as cross-dataset robustness rather than a clean production estimate.
+
+## 2026-06-11
+- Updated AGENTS.md collaboration workflow to require a concrete recommended next step after every completed task.
+- Verification: reviewed AGENTS.md diff; no code tests needed for instruction-only change.
+- Residual risk: none.

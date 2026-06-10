@@ -24,6 +24,7 @@ Default workflow:
 - Design for swappability. The user wants to try different things (models, providers, NER backends, prompts) with the least pain. Build components behind narrow interfaces, hide vendor specifics behind a thin adapter, and expose choices (model, provider, base URL, backend) as configuration with a single source of truth — never hardcode them deep in call sites. Prefer flipping one config value over editing logic. Do not add automatic runtime switching between options; keep selection explicit and reproducible.
 - Run focused tests after each meaningful change; run the broader test suite when the blast radius warrants it.
 - Report what changed, what was verified, and any blocker or residual risk.
+- After finishing every task, recommend the next concrete step without waiting for the user to ask. Keep the recommendation specific and actionable, not a generic "what next?" prompt.
 - Keep heavyweight model downloads, dataset downloads, and integration tests optional unless the user asks to run them.
 - For this project, default to Vietnamese-only behavior unless the user explicitly asks to add English support.
 
