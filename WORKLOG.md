@@ -284,3 +284,9 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated docs/README.md to link both current-direction and PII checkpoint guidance.
 - Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
 - Residual risk: Vietnam-specific checksum/format rules are listed as research items and still need official-source confirmation before seminar or production claims.
+
+## 2026-06-11
+- Added docs/vietnamese-pii-research.md with Vietnam-specific PII engineering notes for CCCD/CMND, passport, tax code, bank account, phone, address, names, organizations, dates, and future unmapped PII categories.
+- Linked the research note from docs/README.md.
+- Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
+- Residual risk: official legal/checksum references could not be confirmed in this environment, so the doc explicitly marks those points as research items rather than settled facts.
