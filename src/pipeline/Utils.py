@@ -4,6 +4,28 @@ def with_prefix(prefix: str, metrics: dict) -> dict:
 
 
 DEFAULT_DATASET_NAME = "nguyenlamtung/pii-masking-95k-preencoded"
+TRAIN_VALIDATION_FRACTION = 0.1
+
+
+def split_train_validation_frame(
+    df,
+    split: str,
+    random_state: int = 42,
+    validation_fraction: float = TRAIN_VALIDATION_FRACTION,
+):
+    """Return a deterministic train_main/train_val partition from a train frame."""
+    if split not in {"train_main", "train_val"}:
+        return df
+    if not 0 < validation_fraction < 1:
+        raise ValueError("validation_fraction must be between 0 and 1.")
+
+    shuffled = df.sample(frac=1.0, random_state=random_state)
+    val_size = max(1, int(round(len(shuffled) * validation_fraction)))
+    if split == "train_val":
+        partition = shuffled.iloc[:val_size]
+    else:
+        partition = shuffled.iloc[val_size:]
+    return partition.sort_index()
 
 
 def load_hf_token():
@@ -56,7 +78,11 @@ def load_evaluation_dataset(
     if split == "all":
         selected_splits = available_splits
     else:
-        mapped_split = "validation" if split == "val" and "validation" in dataset else split
+        mapped_split = split
+        if split in {"val", "validation"} and "validation" in dataset:
+            mapped_split = "validation"
+        elif split in {"train_main", "train_val"}:
+            mapped_split = "train"
         if mapped_split not in dataset:
             raise ValueError(
                 f"Split {split!r} is not available. Available splits: {available_splits}"
@@ -66,9 +92,15 @@ def load_evaluation_dataset(
     frames = []
     for selected_split in selected_splits:
         split_df = dataset[selected_split].to_pandas()
+        if split in {"train_main", "train_val"} and selected_split == "train":
+            split_df = split_train_validation_frame(
+                split_df,
+                split=split,
+                random_state=random_state,
+            )
         if limit is not None and len(split_df) > limit:
             split_df = split_df.sample(n=limit, random_state=random_state)
-        split_df["split"] = selected_split
+        split_df["split"] = split if split in {"train_main", "train_val"} else selected_split
         frames.append(split_df)
 
     df = pd.concat(frames, ignore_index=True)

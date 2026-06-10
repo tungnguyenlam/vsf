@@ -35,6 +35,10 @@ Current registry keys:
 |-----|-------|------|
 | `baseline_presidio` | `BaselinePresidioPipeline` | `Models/BaselinePresidioPipeline.py` |
 | `regex_only` | `RegexOnlyPipeline` | `Models/RegexOnlyPipeline.py` |
+| `regex_recall` | `RegexRecallPipeline` | `Models/RegexRecallPipeline.py` |
+| `underthesea_ner` | `UndertheseaNerPipeline` | `Models/UndertheseaNerPipeline.py` |
+| `underthesea_regex` | `UndertheseaRegexPipeline` | `Models/UndertheseaRegexPipeline.py` |
+| `underthesea_regex_recall` | `UndertheseaRegexRecallPipeline` | `Models/UndertheseaRegexPipeline.py` |
 | `hybrid_regex` | `HybridRegexPipeline` | `Models/HybridRegexPipeline.py` |
 
 ## Adding a Pipeline
@@ -68,14 +72,18 @@ class MyExperimentPipeline(VietnamesePipeline):
 The script entrypoint is:
 
 ```bash
-PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --split test --limit 50
+PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --split train_val --limit 50
 ```
 
 For LLM verifier runs:
 
 ```bash
-PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --split test --limit 50 --verify
+PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --split train_val --limit 50 --verify
 ```
+
+Use `train_val` for routine inspection and rule iteration. It is a deterministic
+10% holdout partition derived from the train split (`random_state=42`), disjoint
+from `train_main`. Keep the dataset's `test` split untouched until final reporting.
 
 `scripts/evaluate_pipeline.py` is intentionally thin. The actual runner lives in
 `src/pipeline/Pipelines/evaluation.py`:
@@ -93,7 +101,7 @@ from src.pipeline.Pipelines.evaluation import (
 
 config = PipelineEvaluationConfig(
     pipeline="regex_only",
-    split="test",
+    split="train_val",
     limit=50,
     verify=False,
 )

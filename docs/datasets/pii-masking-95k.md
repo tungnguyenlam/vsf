@@ -17,7 +17,9 @@ dataset for the PII pipeline.
 | validation | 9,512 |
 | **total** | **95,122** |
 
-`load(split="val")` is aliased to the `validation` split. `split="all"` concatenates all three.
+`load(split="val")` is aliased to the `validation` split. `split="train_val"` and
+`split="train_main"` create a deterministic 10%/90% partition from the train split
+for routine inspection without touching test. `split="all"` concatenates all three.
 
 ## Columns
 
@@ -115,7 +117,7 @@ Broad categories of unmapped labels: **money/finance** (`SO_TIEN`, `LOAI_TIEN_TE
 from src.pipeline.Datasets import get_dataset
 
 ds = get_dataset("pii_masking_95k")
-df = ds.load(split="val", limit=200)          # normalized: source_text, privacy_mask, split, input_id
+df = ds.load(split="train_val", limit=200)    # normalized: source_text, privacy_mask, split, input_id
 print(ds.presidio_types)                        # the 8 evaluable types
 print(ds.unmapped_labels(df))                   # what's being ignored in this slice
 
@@ -127,7 +129,7 @@ CLI evaluation is run through `scripts/evaluate_pipeline.py`, which delegates to
 `src/pipeline/Pipelines/evaluation.py`:
 
 ```bash
-PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --dataset nguyenlamtung/pii-masking-95k-preencoded --split test --limit 50
+PYTHONPATH=. python3 scripts/evaluate_pipeline.py --pipeline regex_only --dataset nguyenlamtung/pii-masking-95k-preencoded --split train_val --limit 50
 ```
 
 The runner loads local `.env` values before dataset setup, so this private dataset can use

@@ -183,3 +183,73 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Per-entity precision/recall/f1: BANK_ACCOUNT 1.0000/0.3588/0.5281; ID 1.0000/0.6139/0.7607; ORGANIZATION 0.9150/0.3651/0.5220; LOCATION 0.9780/0.8639/0.9174; PERSON 1.0000/0.3100/0.4733; DATE_TIME 1.0000/0.4361/0.6073; PHONE_NUMBER 0.9620/1.0000/0.9806; EMAIL_ADDRESS 1.0000/1.0000/1.0000.
 - Verified: focused pipeline tests -> 8 passed; full suite -> 25 passed, 1 skipped.
 - Residual risk: recall remains intentionally limited for PERSON/ORGANIZATION/DATE_TIME compared with an NER model; regex-only still cannot robustly cover free-form names or all organization mentions.
+
+## 2026-06-10
+- Ran lite regex_only evaluation after pulling latest master (test split, limit 50, no logging, no verifier).
+- Verified per-entity metrics are emitted by the evaluation runner; overall precision 1.0000, recall 0.6175, F1 0.7635.
+- Residual risk: sample is only 50 test rows and dataset generation/cache output occurred during the run; no full-suite tests run.
+
+## 2026-06-10
+- Re-ran lite regex_only evaluation with source-text JSONL logging at output/predictions/lite_false_analysis/predictions.jsonl.
+- Analyzed unmatched predictions vs mapped ground truth: 0 FP and 83 FN; largest misses are PERSON 43, DATE_TIME 17, LOCATION 11.
+- Residual risk: findings are from the deterministic 50-row test lite sample only; broader sample may reveal additional regex gaps.
+
+## 2026-06-10
+- Added targeted Vietnamese regex contexts for lite-sample false negatives: bilingual CCCD/account labels, hyphenated employee IDs, transaction subtypes, expanded date contexts, thôn/country address spans, split/person honorific names, and organization labels.
+- Verified focused pipeline/evaluation tests pass: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py (8 passed).
+- Reran regex_only lite eval on test split limit 50 with source logging at output/predictions/lite_false_analysis_after2/predictions.jsonl: overall F1 improved from 0.7635 to 0.9177 with 0 FP; residual misses are mostly PERSON spans.
+- Residual risk: changes are tuned from a 50-row sample; run the deterministic 5k/dev sample before relying on broad precision.
+
+## 2026-06-10
+- Added deterministic train-derived inspection splits: train_val (10% holdout from train) and train_main (remaining 90%), both using random_state=42.
+- Updated CLI/dataset loading docs to use train_val for routine lite evaluation instead of test.
+- Verified focused tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_dataset_sampling.py tests/test_pipeline_registry_and_evaluation.py (13 passed).
+- Ran train_val lite eval on 50 rows with source logging at output/predictions/train_val_lite/predictions.jsonl: precision 0.9769, recall 0.6546, F1 0.7840.
+- Residual risk: prior test-split logs still exist from earlier analysis, but ongoing inspection should use train_val and keep test untouched for final reporting.
+
+## 2026-06-10
+- Ran full regex_only evaluation on official validation and test splits without verifier/logging at user request.
+- Validation: 9512 rows, precision 0.9834, recall 0.6894, F1 0.8105. Test: 9513 rows, precision 0.9828, recall 0.6984, F1 0.8166.
+- Residual risk: regex rules had previously been adjusted using a small test sample before the train_val workflow was added, so test is not a pristine untouched estimate for final reporting.
+
+## 2026-06-10
+- Added explicit regex_recall pipeline variant using CustomPatternRecognizer(recall_mode=True), preserving regex_only as the precision baseline.
+- Inspected regex_only false negatives/false positives on train_val 300 and validation 500 logs, then added broader recall-oriented patterns for names, dates, organizations, IDs, bank accounts, and countries.
+- Verified focused tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_dataset_sampling.py (13 passed).
+- Final non-test comparison: train_val regex_only F1 0.8166 -> regex_recall F1 0.9045; validation regex_only F1 0.8105 -> regex_recall F1 0.8996.
+- Residual risk: regex_recall trades precision for recall, especially DATE_TIME false positives; test split was not rerun for this recall-optimization task.
+
+## 2026-06-10
+- Added UndertheseaNER wrapper and explicit pipeline variants: underthesea_ner, underthesea_regex, and underthesea_regex_recall.
+- Initial raw Underthesea train_val 100 eval was noisy: underthesea_ner F1 0.2892; unfiltered underthesea_regex F1 0.5436 with many PERSON/LOCATION false positives.
+- Added filtered PERSON-only Underthesea usage for combined regex variants. Validation 500: regex_only F1 0.8122, underthesea_regex F1 0.8332, underthesea_regex_recall F1 0.9128.
+- Observed memory with /usr/bin/time -l: validation 500 regex_only max RSS ~1.22GB/peak footprint ~387MB; underthesea_regex max RSS ~1.22GB/peak footprint ~450MB; cold 100-row runs showed max RSS up to ~2.96GB.
+- Verified focused registry/evaluation tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py (9 passed).
+- Residual risk: Underthesea improves PERSON recall but introduces many PERSON false positives; only sampled validation runs were used, not full validation/test.
+
+## 2026-06-10
+- Calibrated UndertheseaNER span scores instead of using a fixed confidence: PERSON spans now get context/shape boosts and code/address/drug/money penalties, with low-score spans dropped.
+- Updated combined Underthesea regex pipelines to use filtered PERSON-only Underthesea spans with min_score=0.70.
+- Validation 500 after calibration: underthesea_regex precision 0.9646, recall 0.7439, F1 0.8400; underthesea_regex_recall precision 0.9502, recall 0.8941, F1 0.9213.
+- Train_val 300 after calibration: underthesea_regex precision 0.9687, recall 0.7768, F1 0.8622.
+- Verified focused tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py (9 passed).
+- Residual risk: calibration was tuned on small train_val/validation samples; run full validation before promoting Underthesea variants over regex_recall.
+
+## 2026-06-10
+- Ran full official validation comparison for regex_recall vs calibrated underthesea_regex_recall.
+- regex_recall: precision 0.9658, recall 0.8420, F1 0.8996, runtime 7.22s, max RSS ~1.21GB, peak footprint ~405MB.
+- underthesea_regex_recall: precision 0.9481, recall 0.8817, F1 0.9137, runtime 153.99s, max RSS ~1.21GB, peak footprint ~482MB.
+- Underthesea improved PERSON recall from 0.5402 to 0.7431 and PERSON F1 from 0.7008 to 0.8082, but added 805 PERSON FP and is ~21x slower.
+- Residual risk: full test was not run; use validation for selection and reserve test for final reporting.
+
+## 2026-06-10
+- Added detailed session report at report/2026-06-10-regex-underthesea-session.md covering regex tuning, train_val split, recall regex, Underthesea integration, calibration, metrics, runtime/RAM, and next steps.
+- Verification: report file created; no code tests needed for documentation-only change.
+- Residual risk: report summarizes current uncommitted working tree state and should be updated if metrics or pipeline variants change before submission.
+
+## 2026-06-10
+- Added scripts/mine_prediction_errors.py to mine FP/FN summaries from prediction JSONL logs with source text, recognizer, pattern, span text, and context.
+- Ran it on output/predictions/underthesea_regex_recall_validation_500_calibrated/predictions.jsonl and wrote output/error_analysis/underthesea_regex_recall_validation_500_calibrated/{summary.md,summary.json}.
+- Findings from the 500-row calibrated validation sample: 96 FP and 217 FN; FP mostly PERSON/DATE_TIME, and most FP came from regex patterns rather than Underthesea after calibration.
+- Verified focused tests: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_dataset_sampling.py (14 passed).
+- Residual risk: script currently uses evaluator-style overlap matching and mapped labels only; future versions could add exact-match mode or unmapped-label diagnostics.

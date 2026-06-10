@@ -8,6 +8,10 @@ from src.pipeline.Pipelines.Models import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
     RegexOnlyPipeline,
+    RegexRecallPipeline,
+    UndertheseaNerPipeline,
+    UndertheseaRegexPipeline,
+    UndertheseaRegexRecallPipeline,
 )
 
 
@@ -16,6 +20,10 @@ __all__ = [
     "HybridRegexPipeline",
     "PIPELINE_REGISTRY",
     "RegexOnlyPipeline",
+    "RegexRecallPipeline",
+    "UndertheseaNerPipeline",
+    "UndertheseaRegexPipeline",
+    "UndertheseaRegexRecallPipeline",
     "get_pipeline",
     "get_pipeline_class",
     "list_pipeline_names",

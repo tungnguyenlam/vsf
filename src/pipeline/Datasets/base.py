@@ -60,7 +60,11 @@ class BaseDataset(ABC):
         if split == "all":
             selected = available
         else:
-            mapped = "validation" if split == "val" and "validation" in dataset else split
+            mapped = split
+            if split in {"val", "validation"} and "validation" in dataset:
+                mapped = "validation"
+            elif split in {"train_main", "train_val"}:
+                mapped = "train"
             if mapped not in dataset:
                 raise ValueError(
                     f"{self.name}: split {split!r} not available. Available: {available}"
@@ -70,9 +74,17 @@ class BaseDataset(ABC):
         frames = []
         for sp in selected:
             split_df = dataset[sp].to_pandas()
+            if split in {"train_main", "train_val"} and sp == "train":
+                from src.pipeline.Utils import split_train_validation_frame
+
+                split_df = split_train_validation_frame(
+                    split_df,
+                    split=split,
+                    random_state=random_state,
+                )
             if limit is not None and len(split_df) > limit:
                 split_df = split_df.sample(n=limit, random_state=random_state)
-            split_df["split"] = sp
+            split_df["split"] = split if split in {"train_main", "train_val"} else sp
             frames.append(split_df)
 
         df = pd.concat(frames, ignore_index=True)

@@ -2,12 +2,20 @@ from src.pipeline.Pipelines.Models import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
     RegexOnlyPipeline,
+    RegexRecallPipeline,
+    UndertheseaNerPipeline,
+    UndertheseaRegexPipeline,
+    UndertheseaRegexRecallPipeline,
 )
 
 
 PIPELINE_REGISTRY = {
     "baseline_presidio": BaselinePresidioPipeline,
     "regex_only": RegexOnlyPipeline,
+    "regex_recall": RegexRecallPipeline,
+    "underthesea_ner": UndertheseaNerPipeline,
+    "underthesea_regex": UndertheseaRegexPipeline,
+    "underthesea_regex_recall": UndertheseaRegexRecallPipeline,
     "hybrid_regex": HybridRegexPipeline,
 }
 

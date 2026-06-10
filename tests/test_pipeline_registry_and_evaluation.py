@@ -8,9 +8,14 @@ from src.pipeline.Pipelines import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
     RegexOnlyPipeline,
+    RegexRecallPipeline,
+    UndertheseaNerPipeline,
+    UndertheseaRegexPipeline,
+    UndertheseaRegexRecallPipeline,
     get_pipeline,
     get_pipeline_class,
 )
+from src.pipeline.NERWrappers.UndertheseaNER import UndertheseaNER
 from src.pipeline.Recognizers.CustomPatternRecognizer import CustomPatternRecognizer
 
 
@@ -21,7 +26,18 @@ def read_jsonl(path):
 def test_pipeline_registry_returns_expected_classes():
     assert get_pipeline_class("baseline_presidio") is BaselinePresidioPipeline
     assert get_pipeline_class("regex_only") is RegexOnlyPipeline
+    assert get_pipeline_class("regex_recall") is RegexRecallPipeline
+    assert get_pipeline_class("underthesea_ner") is UndertheseaNerPipeline
+    assert get_pipeline_class("underthesea_regex") is UndertheseaRegexPipeline
+    assert get_pipeline_class("underthesea_regex_recall") is UndertheseaRegexRecallPipeline
     assert get_pipeline_class("hybrid_regex") is HybridRegexPipeline
+    assert isinstance(get_pipeline("regex_recall", prediction_log_path=None), RegexRecallPipeline)
+    assert isinstance(get_pipeline("underthesea_ner", prediction_log_path=None), UndertheseaNerPipeline)
+    assert isinstance(get_pipeline("underthesea_regex", prediction_log_path=None), UndertheseaRegexPipeline)
+    assert isinstance(
+        get_pipeline("underthesea_regex_recall", prediction_log_path=None),
+        UndertheseaRegexRecallPipeline,
+    )
     assert isinstance(get_pipeline("regex_only", prediction_log_path=None), RegexOnlyPipeline)
     assert RegexOnlyPipeline.__module__ == "src.pipeline.Pipelines.Models.RegexOnlyPipeline"
 
@@ -39,6 +55,16 @@ def test_lightweight_vietnamese_pipelines_predict_small_text():
     entity_types = {result.entity_type for result in regex_results}
     assert "EMAIL_ADDRESS" in entity_types
     assert "PHONE_NUMBER" in entity_types
+
+
+def test_underthesea_wrapper_returns_original_offsets():
+    text = "Tôi là Nguyễn Văn An ở Hà Nội."
+    results = UndertheseaNER(min_score=0.0).predict_entities(text)
+
+    by_text = {result["word"]: result for result in results}
+    assert by_text["Nguyễn Văn An"]["entity_type"] == "PERSON"
+    assert text[by_text["Nguyễn Văn An"]["start"]:by_text["Nguyễn Văn An"]["end"]] == "Nguyễn Văn An"
+    assert by_text["Hà Nội"]["entity_type"] == "LOCATION"
 
 
 def test_regex_pipeline_rejects_bare_numeric_false_positives():

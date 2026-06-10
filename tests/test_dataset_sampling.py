@@ -9,6 +9,7 @@ from src.pipeline.Datasets.sampling import (
     parse_sample_tiers,
     write_sample_manifests,
 )
+from src.pipeline.Utils import split_train_validation_frame
 
 
 def test_parse_sample_tiers_defaults_and_custom_values():
@@ -65,3 +66,17 @@ def test_build_and_write_sample_manifests(tmp_path):
 
     with pytest.raises(FileExistsError):
         write_sample_manifests(manifests, tmp_path)
+
+
+def test_train_validation_partition_is_deterministic_and_disjoint():
+    df = pd.DataFrame({"input_id": [f"row-{i}" for i in range(100)]})
+
+    first_val = split_train_validation_frame(df, "train_val", random_state=42)
+    second_val = split_train_validation_frame(df, "train_val", random_state=42)
+    train_main = split_train_validation_frame(df, "train_main", random_state=42)
+
+    assert first_val["input_id"].tolist() == second_val["input_id"].tolist()
+    assert len(first_val) == 10
+    assert len(train_main) == 90
+    assert set(first_val["input_id"]).isdisjoint(set(train_main["input_id"]))
+    assert set(first_val["input_id"]) | set(train_main["input_id"]) == set(df["input_id"])
