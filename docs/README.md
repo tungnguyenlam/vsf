@@ -9,3 +9,6 @@ Project docs are organized by the component they describe.
 | Vietnam-specific PII research notes | [vietnamese-pii-research.md](vietnamese-pii-research.md) |
 | Pipeline models and evaluation runner | [pipelines.md](pipelines.md) |
 | Evaluation datasets | [datasets/README.md](datasets/README.md) |
+
+Presentation summaries live under `report/`, including
+`report/pii-checkpoint-summary.md`.

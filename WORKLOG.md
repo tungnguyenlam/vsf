@@ -290,3 +290,9 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Linked the research note from docs/README.md.
 - Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
 - Residual risk: official legal/checksum references could not be confirmed in this environment, so the doc explicitly marks those points as research items rather than settled facts.
+
+## 2026-06-11
+- Added report/pii-checkpoint-summary.md as a concise presentation package for the Vietnamese PII checkpoint, using project open questions rather than mentor-specific open questions.
+- Added scripts/demo_pii_checkpoint.py to demonstrate regex_recall detection and Presidio anonymization on Vietnamese sample texts.
+- Verification: PYTHONPATH=. .venv/bin/python scripts/demo_pii_checkpoint.py completed successfully; PYTHONPATH=. .venv/bin/pytest -q tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (17 passed).
+- Residual risk: the demo consolidates exact duplicate display spans for readability, but does not change the underlying pipeline behavior.
