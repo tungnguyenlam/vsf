@@ -334,3 +334,9 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Verified with: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (28 passed).
 - Ran a local seed evaluation with --include-source-text and mined the resulting decision log; the 40-row hand-written seed remains perfect, so the mined report has no FP/FN/action mismatches.
 - Residual risk: the miner is only useful once logs include realistic mistakes; the current seed is still too small and curated to represent real-world prompt-injection performance.
+
+## 2026-06-11
+- Documented the manual prompt-injection tuning loop in docs/prompt-injection.md, including copy-paste commands for local seed evaluation, decision-log mining, reading the mined report, and focused test runs.
+- Added concrete seed-expansion priorities: ambiguous benign security prompts, retrieved-context injections, tool permission/state cases, mixed Vietnamese/English attacks, and review-vs-block boundary cases.
+- Verification: reviewed docs/prompt-injection.md diff; documentation-only change, no tests run.
+- Residual risk: commands assume the project virtualenv exists at .venv and are intended for local development from the repository root.

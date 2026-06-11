@@ -131,6 +131,64 @@ PYTHONPATH=. .venv/bin/python scripts/mine_prompt_injection_errors.py \
 For useful text examples in the mined report, run the evaluator with
 `--include-source-text`.
 
+## Manual Tuning Loop
+
+Use this command when you want to check the local Vietnamese seed and keep
+source text in the decision log for debugging:
+
+```bash
+RUN_ID=prompt-injection-local-seed-manual
+
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_seed \
+  --run-id "$RUN_ID" \
+  --include-source-text
+```
+
+Then mine the generated decision log:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/mine_prompt_injection_errors.py \
+  "output/prompt_injection/$RUN_ID/decisions.jsonl" \
+  --out-dir "output/prompt_injection_error_analysis/$RUN_ID"
+```
+
+Read the mined Markdown report:
+
+```bash
+sed -n '1,220p' "output/prompt_injection_error_analysis/$RUN_ID/summary.md"
+```
+
+Run the focused regression tests after changing seed examples or rules:
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q \
+  tests/test_prompt_injection_detector.py \
+  tests/test_prompt_injection_evaluation.py
+```
+
+Run the broader focused suite before committing prompt-injection changes:
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q \
+  tests/test_prompt_injection_detector.py \
+  tests/test_prompt_injection_evaluation.py \
+  tests/test_pipeline_registry_and_evaluation.py \
+  tests/test_prediction_jsonl_logging.py
+```
+
+When expanding `data/prompt_injection/vietnamese_seed.jsonl`, prioritize:
+
+- ambiguous benign prompts that discuss security, jailbreaks, or prompt
+  injection without asking the model to perform the attack;
+- indirect injections inside retrieved-context or document text;
+- tool-state and permission examples, especially shell/API/tool-call requests
+  that try to skip confirmation;
+- mixed Vietnamese/English attacks using terms such as `system prompt`,
+  `developer message`, `tool`, `shell`, `token`, or `api key`;
+- expected-action boundary cases where the right output is `review` rather than
+  `block`.
+
 ## Current Limitations
 
 - Rules are Vietnamese-first and only cover obvious prompt-injection phrasing.
