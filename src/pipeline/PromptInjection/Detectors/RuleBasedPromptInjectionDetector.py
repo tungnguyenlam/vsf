@@ -88,6 +88,7 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
             "không thực hiện",
             "chỉ trả lời",
             "chính sách nội bộ",
+            "tóm tắt chính sách",
             "log mẫu",
             "redacted",
         )
@@ -186,7 +187,7 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 category="jailbreak",
                 pattern=(
                     r"\b(?:vượt\s+qua|bỏ\s+qua|né|phá|bypass|disable|"
-                    r"turn\s+off|ignore)\b.{0,70}?"
+                    r"turn\s+off|ignore|override)\b.{0,70}?"
                     r"\b(?:chính\s+sách|bộ\s+lọc|guardrail|kiểm\s+duyệt|"
                     r"an\s+toàn|hạn\s+chế|safety|filter|policy|restriction)\b"
                 ),
@@ -225,10 +226,11 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 category="tool_abuse",
                 pattern=(
                     r"\b(?:không\s+hỏi\s+lại|không\s+cần|bỏ\s+qua|bypass|"
+                    r"không\s+hỏi\s+xác\s+nhận|"
                     r"without|skip|don't|do\s+not)\b.{0,55}?"
                     r"\b(?:xin\s+phép|quyền|xác\s+nhận|hỏi\s+lại|permission|"
                     r"confirmation|approval)?\b.{0,90}?"
-                    r"\b(?:chạy|thực\s+thi|execute|run)\b.{0,45}?"
+                    r"\b(?:gọi|chạy|thực\s+thi|call|execute|run)\b.{0,45}?"
                     r"\b(?:tool|api|database|lệnh|terminal|shell|command)\b"
                 ),
                 weight=0.75,
@@ -255,11 +257,29 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                     r"đọc\s+toàn\s+bộ|đọc|extract|send|list|dump|read)\b.{0,90}?"
                     r"\b(?:mật\s+khẩu|token|api\s*key|khóa\s+api|"
                     r"secret|credentials?|dữ\s+liệu\s+người\s+dùng|user\s+data|"
-                    r"thông\s+tin\s+ẩn|"
+                    r"lịch\s+sử\s+chat|thông\s+tin\s+cá\s+nhân|thông\s+tin\s+ẩn|"
                     r"password|credentials?|user\s+data)\b"
                 ),
                 weight=0.65,
                 description="Attempts to extract secrets or user data.",
+            ),
+            PromptInjectionRule(
+                name="external_secret_exfiltration",
+                category="data_exfiltration",
+                pattern=(
+                    r"\b(?:gửi|send|dump|đọc|read)\b.{0,90}?"
+                    r"\b(?:secret|credentials?|token|mật\s+khẩu|file\s+cấu\s+hình)\b"
+                    r".{0,80}?\b(?:webhook|bên\s+ngoài|external)\b"
+                ),
+                weight=0.75,
+                description="Attempts to send secrets or credentials to an external destination.",
+            ),
+            PromptInjectionRule(
+                name="credential_dump",
+                category="data_exfiltration",
+                pattern=r"\b(?:dump|xuất\s+ra|liệt\s+kê)\b.{0,70}?\b(?:credentials?|secret|token)\b",
+                weight=0.75,
+                description="Direct attempts to dump credentials, secrets, or tokens.",
             ),
             PromptInjectionRule(
                 name="encoded_instruction",
@@ -277,7 +297,8 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 name="retrieved_context_instruction",
                 category="indirect_injection",
                 pattern=(
-                    r"\b(?:trong\s+tài\s+liệu|nội\s+dung\s+truy\s+xuất|"
+                    r"\b(?:trong\s+tài\s+liệu|tài\s+liệu\s+trợ\s+giúp|"
+                    r"nội\s+dung\s+truy\s+xuất|"
                     r"retrieved\s+context|document\s+says)\b.{0,100}?"
                     r"\b(?:bỏ\s+qua|ignore|làm\s+theo|follow)\b.{0,80}?"
                     r"\b(?:hướng\s+dẫn|instructions?|system\s+prompt|quy\s+tắc)\b"

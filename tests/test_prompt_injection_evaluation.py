@@ -2,9 +2,11 @@ import json
 
 from scripts.mine_prompt_injection_errors import load_records, mine_errors, write_markdown
 from src.pipeline.PromptInjection import (
+    LocalVietnamesePromptInjectionAppSeed,
     LocalVietnamesePromptInjectionSeed,
     PromptInjectionEvaluationConfig,
     PromptInjectionEvaluationRunner,
+    list_prompt_injection_dataset_names,
 )
 
 
@@ -19,6 +21,17 @@ def test_local_vietnamese_seed_loads_examples():
     assert examples[0].input_id == "vi-seed-001"
     assert examples[0].is_injection is False
     assert any(example.is_injection for example in examples)
+    assert any(example.expected_action == "block" for example in examples)
+
+
+def test_local_vietnamese_app_seed_loads_examples_and_is_registered():
+    examples = LocalVietnamesePromptInjectionAppSeed().load()
+
+    assert "local_vietnamese_app_seed" in list_prompt_injection_dataset_names()
+    assert len(examples) == 30
+    assert examples[0].input_id == "vi-app-001"
+    assert examples[0].is_injection is False
+    assert any(example.category == "app_indirect_tool_abuse" for example in examples)
     assert any(example.expected_action == "block" for example in examples)
 
 
@@ -67,6 +80,20 @@ def test_prompt_injection_evaluator_can_disable_logging():
 
     assert output["rows"] == 65
     assert output["log_path"] is None
+
+
+def test_prompt_injection_evaluator_runs_app_seed_without_logging():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(dataset="local_vietnamese_app_seed", no_log=True)
+    )
+
+    output = runner.run()
+
+    assert output["dataset"] == "local_vietnamese_app_seed"
+    assert output["rows"] == 30
+    assert output["counts"]["tp"] > 0
+    assert output["counts"]["tn"] > 0
+    assert output["action_counts"]["total"] == 30
 
 
 def test_prompt_injection_error_miner_summarizes_decision_logs(tmp_path):

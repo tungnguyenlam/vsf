@@ -347,3 +347,10 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated dataset docs, baseline report, and prompt-injection tests for the 65-row checkpoint.
 - Verification: initial expanded-seed run found precision 0.814, recall 0.897, F1 0.854 with 8 FP, 4 FN, and 17 action mismatches; after tuning, local seed evaluation reached precision/recall/F1/action accuracy 1.0 on 65 rows. Final focused suite: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (30 passed).
 - Residual risk: this remains a hand-written regression seed, so perfect local metrics should not be treated as production performance; next validation needs mentor/application examples or real traffic-shaped prompts.
+
+## 2026-06-11
+- Added local_vietnamese_app_seed: a 30-row application-shaped Vietnamese prompt-injection smoke dataset covering support workflows, tool permission checks, retrieved documents, refund/payment APIs, logs, policy summaries, and credential/user-data exfiltration.
+- Registered the dataset, added dataset docs/index entries, updated prompt-injection docs and the baseline report with app-seed commands and metrics.
+- Tuned RuleBasedPromptInjectionDetector from mined app-seed errors: benign policy-summary suppression, app-shaped approval/tool-call bypass phrasing, retrieved help-document phrasing, credential dump/external secret exfiltration, and user chat/personal-info exfiltration.
+- Verification: initial app-seed run found precision 0.9412, recall 0.8000, F1 0.8649 with 1 FP, 4 FN, and 9 action mismatches; final app-seed run reached precision/recall/F1/action accuracy 1.0 on 30 rows. Final focused suite: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (32 passed).
+- Residual risk: app seed is still synthetic; use mentor/application examples next to test whether these app-shaped patterns hold outside hand-written prompts.

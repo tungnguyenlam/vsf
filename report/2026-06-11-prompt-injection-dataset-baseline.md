@@ -7,6 +7,8 @@ Date: 2026-06-11
 Added the first reproducible evaluation path for the prompt-injection checkpoint:
 
 - local Vietnamese seed benchmark: `data/prompt_injection/vietnamese_seed.jsonl`
+- local Vietnamese app-shaped smoke benchmark:
+  `data/prompt_injection/vietnamese_app_seed.jsonl`
 - HuggingFace dataset adapter: `rikka-snow/prompt-injection-multilingual`
 - binary evaluator CLI: `scripts/evaluate_prompt_injection.py`
 - JSONL decision logs under `output/prompt_injection/<run-id>/decisions.jsonl`
@@ -56,6 +58,27 @@ retrieved-context/document injections, tool permission/state bypasses,
 Vietnamese/English mixed attacks, and review-vs-block boundary cases. An
 intermediate run before rule tuning surfaced 8 FP, 4 FN, and 17 action
 mismatches, which drove the targeted rule updates.
+
+Application-shaped smoke command:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_app_seed \
+  --run-id prompt-injection-app-seed \
+  --include-source-text
+```
+
+Result:
+
+| Dataset | Rows | Precision | Recall | F1 | TP | FP | TN | FN |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `local_vietnamese_app_seed` | 30 | 1.0000 | 1.0000 | 1.0000 | 20 | 0 | 10 | 0 |
+
+The first app-seed run before rule tuning found precision 0.9412, recall
+0.8000, F1 0.8649, with 1 FP, 4 FN, and 9 action mismatches. The mined errors
+covered benign policy summaries, app-shaped tool permission bypasses,
+retrieved-document attacks, and credential/user-data exfiltration phrasing.
+After targeted rule updates, action accuracy is 1.0000 on all 30 rows.
 
 Command:
 

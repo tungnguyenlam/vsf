@@ -96,6 +96,7 @@ Current datasets:
 | Dataset | Source | Role |
 |---|---|---|
 | `local_vietnamese_seed` | `data/prompt_injection/vietnamese_seed.jsonl` | Main small Vietnamese regression set with optional expected-action labels |
+| `local_vietnamese_app_seed` | `data/prompt_injection/vietnamese_app_seed.jsonl` | Application-shaped Vietnamese smoke set for support/tool/RAG scenarios |
 | `hf_prompt_injection_multilingual` | `rikka-snow/prompt-injection-multilingual` | Optional public HF cross-language smoke benchmark |
 
 Run the local Vietnamese seed benchmark:
@@ -114,6 +115,15 @@ PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
   --split test \
   --limit 100 \
   --run-id prompt-injection-hf-smoke
+```
+
+Run the application-shaped Vietnamese smoke benchmark:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_app_seed \
+  --run-id prompt-injection-app-seed \
+  --include-source-text
 ```
 
 The evaluator writes JSONL decision logs under

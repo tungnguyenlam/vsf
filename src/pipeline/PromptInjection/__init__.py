@@ -1,5 +1,6 @@
 from src.pipeline.PromptInjection.Datasets import (
     HfPromptInjectionMultilingualDataset,
+    LocalVietnamesePromptInjectionAppSeed,
     LocalVietnamesePromptInjectionSeed,
     PromptInjectionExample,
     get_prompt_injection_dataset,
@@ -19,6 +20,7 @@ from src.pipeline.PromptInjection.Models import PromptInjectionResult, PromptInj
 __all__ = [
     "BasePromptInjectionDetector",
     "HfPromptInjectionMultilingualDataset",
+    "LocalVietnamesePromptInjectionAppSeed",
     "LocalVietnamesePromptInjectionSeed",
     "PromptInjectionDecisionJsonlLogger",
     "PromptInjectionEvaluationConfig",
