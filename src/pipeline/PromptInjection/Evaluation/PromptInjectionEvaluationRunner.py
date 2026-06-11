@@ -1,0 +1,120 @@
+import uuid
+from pathlib import Path
+
+from src.pipeline.PromptInjection.Datasets import get_prompt_injection_dataset
+from src.pipeline.PromptInjection.Detectors import RuleBasedPromptInjectionDetector
+from src.pipeline.PromptInjection.Evaluation.PromptInjectionEvaluationConfig import (
+    PromptInjectionEvaluationConfig,
+)
+from src.pipeline.PromptInjection.Logging import PromptInjectionDecisionJsonlLogger
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_DECISION_LOG_DIR = PROJECT_ROOT / "output" / "prompt_injection"
+
+
+class PromptInjectionEvaluationRunner:
+    detector_name = "rule_based_prompt_injection"
+
+    def __init__(self, config: PromptInjectionEvaluationConfig):
+        self.config = config
+
+    def run(self) -> dict:
+        dataset = get_prompt_injection_dataset(self.config.dataset)
+        examples = dataset.load(
+            split=self.config.split,
+            limit=self.config.limit,
+            random_state=self.config.random_state,
+        )
+        detector = RuleBasedPromptInjectionDetector()
+        run_id = self.config.run_id or f"prompt-injection-{uuid.uuid4().hex[:8]}"
+        logger = self._build_logger(run_id)
+
+        decisions = []
+        counts = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+        action_counts = {"correct": 0, "total": 0}
+        for example in examples:
+            result = detector.predict(example.text)
+            self._update_counts(counts, predicted=result.is_injection, actual=example.is_injection)
+            self._update_action_counts(action_counts, example=example, result=result)
+            decisions.append(self._decision(example, result))
+            if logger is not None:
+                logger.log_decision(
+                    run_id=run_id,
+                    detector_name=self.detector_name,
+                    example=example,
+                    result=result,
+                    include_source_text=self.config.include_source_text,
+                )
+
+        return {
+            "detector": self.detector_name,
+            "dataset": self.config.dataset,
+            "split": self.config.split,
+            "rows": len(examples),
+            "run_id": run_id,
+            "log_path": str(logger.path) if logger is not None else None,
+            "metrics": self._metrics(counts),
+            "action_metrics": self._action_metrics(action_counts),
+            "counts": counts,
+            "action_counts": action_counts,
+            "decisions": decisions,
+        }
+
+    def _build_logger(self, run_id: str):
+        if self.config.no_log:
+            return None
+        if self.config.log_path is not None:
+            return PromptInjectionDecisionJsonlLogger(self.config.log_path)
+        run_dir = DEFAULT_DECISION_LOG_DIR / run_id
+        return PromptInjectionDecisionJsonlLogger(run_dir / "decisions.jsonl")
+
+    def _update_counts(self, counts: dict[str, int], *, predicted: bool, actual: bool):
+        if predicted and actual:
+            counts["tp"] += 1
+        elif predicted and not actual:
+            counts["fp"] += 1
+        elif not predicted and not actual:
+            counts["tn"] += 1
+        else:
+            counts["fn"] += 1
+
+    def _update_action_counts(self, counts: dict[str, int], *, example, result):
+        if example.expected_action is None:
+            return
+        counts["total"] += 1
+        if result.action == example.expected_action:
+            counts["correct"] += 1
+
+    def _decision(self, example, result) -> dict:
+        return {
+            "input_id": example.input_id,
+            "label": example.label,
+            "expected_action": example.expected_action,
+            "predicted_label": int(result.is_injection),
+            "score": result.score,
+            "action": result.action,
+            "matched_rules": result.matched_rules,
+        }
+
+    def _metrics(self, counts: dict[str, int]) -> dict[str, float]:
+        tp = counts["tp"]
+        fp = counts["fp"]
+        tn = counts["tn"]
+        fn = counts["fn"]
+        total = tp + fp + tn + fn
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        accuracy = (tp + tn) / total if total else 0.0
+        return {
+            "accuracy": round(accuracy, 6),
+            "precision": round(precision, 6),
+            "recall": round(recall, 6),
+            "f1": round(f1, 6),
+        }
+
+    def _action_metrics(self, counts: dict[str, int]) -> dict[str, float | None]:
+        if counts["total"] == 0:
+            return {"accuracy": None}
+        return {"accuracy": round(counts["correct"] / counts["total"], 6)}

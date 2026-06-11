@@ -1,4 +1,6 @@
 __pycache__
 .env
-data/
+data/*
+!data/prompt_injection/
+!data/prompt_injection/vietnamese_seed.jsonl
 output/

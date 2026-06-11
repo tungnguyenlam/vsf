@@ -315,3 +315,22 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated AGENTS.md collaboration workflow to require a concrete recommended next step after every completed task.
 - Verification: reviewed AGENTS.md diff; no code tests needed for instruction-only change.
 - Residual risk: none.
+
+## 2026-06-11
+- Added a prompt-injection evaluation path with a repo-owned Vietnamese seed JSONL, a public HuggingFace adapter for rikka-snow/prompt-injection-multilingual, JSONL decision logging, a CLI evaluator, dataset docs, and a baseline report.
+- Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (24 passed); local seed evaluation reached precision/recall/F1 1.0 on 24 seed rows; HF multilingual 100-row smoke reached recall 0.0 as expected for Vietnamese-only rules on mostly non-Vietnamese examples.
+- Residual risk: the local seed is hand-written and easy for the current rules; expand it with ambiguous benign, retrieved-context, mixed-language, and tool-state examples before treating metrics as meaningful.
+
+## 2026-06-11
+- Refactored the prompt-injection package into class-centric one-class-per-file modules for models, detectors, datasets, evaluation, and logging, with compatibility shims left at the old module paths.
+- Expanded the local Vietnamese prompt-injection seed from 24 to 40 rows with ambiguous benign security-education prompts, mixed Vietnamese/English attacks, indirect retrieved-context injections, and expected-action labels for review/block/allow checks.
+- Tightened rule behavior for mixed-language attacks, direct shell permission bypass, indirect retrieved-context injection, and benign security-discussion suppression.
+- Verification: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (27 passed); scripts/demo_prompt_injection.py ran successfully; local seed evaluation reached precision/recall/F1/action accuracy 1.0 on 40 rows; one-class-per-file class-count check passed.
+- Residual risk: the 40-row seed is still hand-written and should be supplemented with real mentor/application examples plus a decision-log error miner before treating metrics as representative.
+
+## 2026-06-11
+- Added scripts/mine_prompt_injection_errors.py to mine false positives, false negatives, and expected-action mismatches from prompt-injection decision JSONL logs. The miner writes summary.json and summary.md with matched-rule/category breakdowns and example text when source_text is logged.
+- Documented the prompt-injection error-mining workflow in docs/prompt-injection.md.
+- Verified with: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (28 passed).
+- Ran a local seed evaluation with --include-source-text and mined the resulting decision log; the 40-row hand-written seed remains perfect, so the mined report has no FP/FN/action mismatches.
+- Residual risk: the miner is only useful once logs include realistic mistakes; the current seed is still too small and curated to represent real-world prompt-injection performance.

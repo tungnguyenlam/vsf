@@ -24,9 +24,30 @@ Module:
 
 ```text
 src/pipeline/PromptInjection/
-  RuleBasedDetector.py
-  __init__.py
+  Detectors/
+    BasePromptInjectionDetector.py
+    RuleBasedPromptInjectionDetector.py
+  Models/
+    PromptInjectionResult.py
+    PromptInjectionRule.py
+  Datasets/
+    PromptInjectionDataset.py
+    LocalJsonlPromptInjectionDataset.py
+    LocalVietnamesePromptInjectionSeed.py
+    HuggingFacePromptInjectionDataset.py
+    HfPromptInjectionMultilingualDataset.py
+    registry.py
+  Evaluation/
+    PromptInjectionEvaluationConfig.py
+    PromptInjectionEvaluationRunner.py
+    cli.py
+  Logging/
+    PromptInjectionDecisionJsonlLogger.py
 ```
+
+Class definitions are intentionally one-class-per-file. Top-level modules such
+as `RuleBasedDetector.py`, `Datasets.py`, `Evaluation.py`, and
+`DecisionJsonlLogger.py` are compatibility shims only.
 
 Main class:
 
@@ -68,24 +89,63 @@ Example output includes benign summarization, instruction override, hidden promp
 extraction, tool permission bypass, encoded instruction, and secret-exfiltration
 examples.
 
+## Evaluation
+
+Current datasets:
+
+| Dataset | Source | Role |
+|---|---|---|
+| `local_vietnamese_seed` | `data/prompt_injection/vietnamese_seed.jsonl` | Main small Vietnamese regression set with optional expected-action labels |
+| `hf_prompt_injection_multilingual` | `rikka-snow/prompt-injection-multilingual` | Optional public HF cross-language smoke benchmark |
+
+Run the local Vietnamese seed benchmark:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_seed \
+  --run-id prompt-injection-local-seed
+```
+
+Run a small sample from the HuggingFace multilingual benchmark:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset hf_prompt_injection_multilingual \
+  --split test \
+  --limit 100 \
+  --run-id prompt-injection-hf-smoke
+```
+
+The evaluator writes JSONL decision logs under
+`output/prompt_injection/<run-id>/decisions.jsonl` unless `--no-log` is used.
+Use `--include-source-text` for local debugging logs; omit it for lighter logs.
+
+Mine false positives, false negatives, and action mismatches from a decision log:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/mine_prompt_injection_errors.py \
+  output/prompt_injection/<run-id>/decisions.jsonl \
+  --out-dir output/prompt_injection_error_analysis/<run-id>
+```
+
+For useful text examples in the mined report, run the evaluator with
+`--include-source-text`.
+
 ## Current Limitations
 
 - Rules are Vietnamese-first and only cover obvious prompt-injection phrasing.
 - English support is not a goal yet, except for technical terms commonly used
   inside Vietnamese attacks, such as `system prompt`, `tool`, `token`, and
-  `api key`.
-- There is no dataset or benchmark yet.
+  `api key`, and mixed Vietnamese/English attacks in the local seed.
 - There is no model-based classifier yet.
 - The detector currently scores a single user input, not a full conversation
   with retrieved context and tool state.
 
 ## Next Steps
 
-1. Build a small Vietnamese prompt-injection evaluation set.
-2. Add a JSONL logger for prompt-injection decisions.
-3. Add a CLI evaluator once the dataset shape is stable.
-4. Compare this rule baseline against a cheap local or API classifier on a small
+1. Run the decision-log miner after each seed or rule change and use the mined
+   FP/FN/action-mismatch groups to choose the next examples.
+2. Compare this rule baseline against a cheap local or API classifier on a small
    sample.
-5. Integrate the detector as an input guardrail before tool calls and RAG
+3. Integrate the detector as an input guardrail before tool calls and RAG
    retrieval.
-
