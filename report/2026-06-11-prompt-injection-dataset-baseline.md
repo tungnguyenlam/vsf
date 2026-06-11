@@ -44,12 +44,18 @@ Result:
 
 | Dataset | Rows | Precision | Recall | F1 | TP | FP | TN | FN |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `local_vietnamese_seed` | 40 | 1.0000 | 1.0000 | 1.0000 | 24 | 0 | 16 | 0 |
+| `local_vietnamese_seed` | 65 | 1.0000 | 1.0000 | 1.0000 | 39 | 0 | 26 | 0 |
 
 This is a seed/regression result, not a production estimate. The examples were
 chosen to cover current rule categories plus harder mixed-language,
 retrieved-context, and benign security-education cases. Among rows with
-`expected_action`, action accuracy is 1.0000 on 18 rows.
+`expected_action`, action accuracy is 1.0000 on 43 rows.
+
+The expanded 65-row checkpoint added harder benign security-analysis prompts,
+retrieved-context/document injections, tool permission/state bypasses,
+Vietnamese/English mixed attacks, and review-vs-block boundary cases. An
+intermediate run before rule tuning surfaced 8 FP, 4 FN, and 17 action
+mismatches, which drove the targeted rule updates.
 
 Command:
 
@@ -73,5 +79,6 @@ cross-language smoke coverage, not the current target metric.
 
 ## Recommendation
 
-Next, add a prompt-injection error miner for decision logs so future misses can
-be summarized by category, expected action, score, and matched rules.
+Next, supplement the hand-written seed with mentor/application examples and use
+the decision-log miner after each rule change so future misses are summarized by
+category, expected action, score, and matched rules.

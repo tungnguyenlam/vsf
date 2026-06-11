@@ -11,6 +11,8 @@ This is a small repo-owned seed benchmark for the first Vietnamese
 prompt-injection detector checkpoint. It exists to make rule changes measurable
 before spending LLM calls or adapting larger public datasets.
 
+Current size: 65 rows.
+
 ## Columns And Format
 
 Each JSONL record has:
@@ -42,6 +44,8 @@ Current seed categories include:
 - `benign_tooling`
 - `benign_obfuscation_context`
 - `benign_roleplay`
+- `benign_retrieved_context_analysis`
+- `benign_data_handling`
 - `instruction_override`
 - `secret_extraction`
 - `jailbreak`
@@ -53,7 +57,9 @@ Current seed categories include:
 - `mixed_language_tool_abuse`
 - `mixed_language_data_exfiltration`
 - `mixed_language_jailbreak`
+- `mixed_language_indirect_injection`
 - `indirect_injection`
+- `indirect_data_exfiltration`
 
 ## Mismatch Vs Current Project
 

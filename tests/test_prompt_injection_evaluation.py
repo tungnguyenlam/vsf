@@ -15,7 +15,7 @@ def read_jsonl(path):
 def test_local_vietnamese_seed_loads_examples():
     examples = LocalVietnamesePromptInjectionSeed().load()
 
-    assert len(examples) == 40
+    assert len(examples) == 65
     assert examples[0].input_id == "vi-seed-001"
     assert examples[0].is_injection is False
     assert any(example.is_injection for example in examples)
@@ -36,14 +36,14 @@ def test_prompt_injection_evaluator_reports_metrics_and_logs(tmp_path):
     output = runner.run()
 
     assert output["dataset"] == "local_vietnamese_seed"
-    assert output["rows"] == 40
+    assert output["rows"] == 65
     assert output["counts"]["tp"] > 0
     assert output["metrics"]["recall"] > 0
     assert output["action_counts"]["total"] > 0
     assert output["log_path"] == str(log_path)
 
     records = read_jsonl(log_path)
-    assert len(records) == 40
+    assert len(records) == 65
     assert records[0]["record_version"] == 1
     assert records[0]["run_id"] == "test-run"
     assert records[0]["source_text"] is not None
@@ -65,7 +65,7 @@ def test_prompt_injection_evaluator_can_disable_logging():
 
     output = runner.run()
 
-    assert output["rows"] == 40
+    assert output["rows"] == 65
     assert output["log_path"] is None
 
 

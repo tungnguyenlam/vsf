@@ -340,3 +340,10 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Added concrete seed-expansion priorities: ambiguous benign security prompts, retrieved-context injections, tool permission/state cases, mixed Vietnamese/English attacks, and review-vs-block boundary cases.
 - Verification: reviewed docs/prompt-injection.md diff; documentation-only change, no tests run.
 - Residual risk: commands assume the project virtualenv exists at .venv and are intended for local development from the repository root.
+
+## 2026-06-11
+- Expanded data/prompt_injection/vietnamese_seed.jsonl from 40 to 65 rows with harder ambiguous benign security prompts, retrieved-context/document injections, tool permission/state bypasses, mixed Vietnamese/English attacks, and review-vs-block boundary cases.
+- Tuned RuleBasedPromptInjectionDetector using the mined decision-log errors: broader benign meta-analysis suppression, block-level direct instruction override/tool-bypass/retrieved-context signals, short English hidden-prompt print detection, and additional mixed-language data/tool patterns.
+- Updated dataset docs, baseline report, and prompt-injection tests for the 65-row checkpoint.
+- Verification: initial expanded-seed run found precision 0.814, recall 0.897, F1 0.854 with 8 FP, 4 FN, and 17 action mismatches; after tuning, local seed evaluation reached precision/recall/F1/action accuracy 1.0 on 65 rows. Final focused suite: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (30 passed).
+- Residual risk: this remains a hand-written regression seed, so perfect local metrics should not be treated as production performance; next validation needs mentor/application examples or real traffic-shaped prompts.

@@ -69,13 +69,27 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
         full_text = text.lower()
         benign_markers = (
             "giải thích",
+            "viết cảnh báo",
             "dấu hiệu",
             "bài học",
+            "checklist",
             "không nên yêu cầu",
             "phòng chống",
             "bảo vệ",
             "kiểm thử",
+            "kiểm tra câu sau",
+            "đánh giá yêu cầu",
             "nhận diện",
+            "trích dẫn",
+            "bằng chứng tấn công",
+            "đoạn mô phỏng",
+            "phân loại",
+            "không làm theo",
+            "không thực hiện",
+            "chỉ trả lời",
+            "chính sách nội bộ",
+            "log mẫu",
+            "redacted",
         )
         topic_markers = (
             "prompt injection",
@@ -83,8 +97,16 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
             "dấu hiệu",
             "không nên",
             "bảo vệ",
+            "bảo mật",
+            "độc hại",
+            "nguy hiểm",
+            "hướng dẫn hệ thống",
+            "developer message",
+            "không làm theo",
+            "không thực hiện",
+            "redacted",
         )
-        return any(marker in prefix for marker in benign_markers) and any(
+        return any(marker in prefix or marker in full_text for marker in benign_markers) and any(
             marker in full_text for marker in topic_markers
         )
 
@@ -123,13 +145,15 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 category="instruction_override",
                 pattern=(
                     r"\b(?:bỏ\s+qua|lờ\s+đi|quên|không\s+tuân\s+theo|"
-                    r"đừng\s+làm\s+theo|ghi\s+đè|ignore|forget|disregard|override)\b"
+                    r"đừng\s+làm\s+theo|đừng\s+tuân\s+thủ|ghi\s+đè|"
+                    r"ignore|forget|disregard|override)\b"
                     r".{0,80}?\b(?:hướng\s+dẫn|chỉ\s+dẫn|quy\s+tắc|lệnh|"
-                    r"nội\s+dung|instruction|instructions|rule|rules|prompt)\b"
+                    r"nội\s+dung|system\s+message|system\s+prompt|"
+                    r"instruction|instructions|rule|rules|prompt)\b"
                     r".{0,50}?\b(?:trước|ban\s+đầu|hệ\s+thống|previous|prior|"
                     r"above|system)?\b"
                 ),
-                weight=0.55,
+                weight=0.75,
                 description="Attempts to ignore or override earlier/system instructions.",
             ),
             PromptInjectionRule(
@@ -147,11 +171,22 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 description="Requests hidden prompts, system instructions, or internal rules.",
             ),
             PromptInjectionRule(
+                name="print_system_prompt",
+                category="secret_extraction",
+                pattern=(
+                    r"\b(?:in|print|show|display)\b.{0,35}?"
+                    r"\b(?:system\s+prompt|developer\s+message|hidden\s+prompt|"
+                    r"internal\s+rules?)\b"
+                ),
+                weight=0.7,
+                description="Short English requests to print hidden prompt material.",
+            ),
+            PromptInjectionRule(
                 name="policy_bypass",
                 category="jailbreak",
                 pattern=(
                     r"\b(?:vượt\s+qua|bỏ\s+qua|né|phá|bypass|disable|"
-                    r"turn\s+off)\b.{0,70}?"
+                    r"turn\s+off|ignore)\b.{0,70}?"
                     r"\b(?:chính\s+sách|bộ\s+lọc|guardrail|kiểm\s+duyệt|"
                     r"an\s+toàn|hạn\s+chế|safety|filter|policy|restriction)\b"
                 ),
@@ -175,15 +210,29 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 name="tool_permission_bypass",
                 category="tool_abuse",
                 pattern=(
-                    r"\b(?:gọi|chạy|thực\s+thi|sử\s+dụng|call|run|execute|use)\b"
-                    r".{0,60}?\b(?:công\s+cụ|tool|api|lệnh|terminal|shell)\b"
-                    r".{0,80}?\b(?:không\s+cần|bỏ\s+qua|đừng|without|skip|"
+                    r"\b(?:gọi|chạy|thực\s+thi|sử\s+dụng|dùng|call|run|execute|use)\b"
+                    r".{0,80}?\b(?:công\s+cụ|tool|api|database|lệnh|terminal|shell)\b"
+                    r".{0,120}?\b(?:không\s+cần|bỏ\s+qua|đừng|without|skip|"
                     r"don't|do\s+not)\b.{0,45}?"
                     r"\b(?:xin\s+phép|quyền|xác\s+nhận|hỏi\s+lại|permission|"
                     r"confirmation|approval)\b"
                 ),
-                weight=0.65,
+                weight=0.75,
                 description="Attempts to use tools while bypassing permission checks.",
+            ),
+            PromptInjectionRule(
+                name="permission_bypass_before_tool",
+                category="tool_abuse",
+                pattern=(
+                    r"\b(?:không\s+hỏi\s+lại|không\s+cần|bỏ\s+qua|bypass|"
+                    r"without|skip|don't|do\s+not)\b.{0,55}?"
+                    r"\b(?:xin\s+phép|quyền|xác\s+nhận|hỏi\s+lại|permission|"
+                    r"confirmation|approval)?\b.{0,90}?"
+                    r"\b(?:chạy|thực\s+thi|execute|run)\b.{0,45}?"
+                    r"\b(?:tool|api|database|lệnh|terminal|shell|command)\b"
+                ),
+                weight=0.75,
+                description="Permission bypass phrasing that appears before the tool request.",
             ),
             PromptInjectionRule(
                 name="direct_shell_permission_bypass",
@@ -203,9 +252,10 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 category="data_exfiltration",
                 pattern=(
                     r"\b(?:lấy|trích\s+xuất|gửi|liệt\s+kê|xuất\s+ra|"
-                    r"đọc\s+toàn\s+bộ|extract|send|list|dump|read)\b.{0,90}?"
+                    r"đọc\s+toàn\s+bộ|đọc|extract|send|list|dump|read)\b.{0,90}?"
                     r"\b(?:mật\s+khẩu|token|api\s*key|khóa\s+api|"
-                    r"secret|dữ\s+liệu\s+người\s+dùng|thông\s+tin\s+ẩn|"
+                    r"secret|credentials?|dữ\s+liệu\s+người\s+dùng|user\s+data|"
+                    r"thông\s+tin\s+ẩn|"
                     r"password|credentials?|user\s+data)\b"
                 ),
                 weight=0.65,
@@ -232,7 +282,7 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                     r"\b(?:bỏ\s+qua|ignore|làm\s+theo|follow)\b.{0,80}?"
                     r"\b(?:hướng\s+dẫn|instructions?|system\s+prompt|quy\s+tắc)\b"
                 ),
-                weight=0.5,
+                weight=0.75,
                 description="Indirect injection embedded in retrieved or document context.",
             ),
         ]
