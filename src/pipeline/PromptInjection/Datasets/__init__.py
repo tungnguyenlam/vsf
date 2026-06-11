@@ -10,6 +10,9 @@ from src.pipeline.PromptInjection.Datasets.LocalJsonlPromptInjectionDataset impo
 from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionAppSeed import (
     LocalVietnamesePromptInjectionAppSeed,
 )
+from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionMentorSeed import (
+    LocalVietnamesePromptInjectionMentorSeed,
+)
 from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionSeed import (
     LocalVietnamesePromptInjectionSeed,
 )
@@ -29,6 +32,7 @@ __all__ = [
     "HuggingFacePromptInjectionDataset",
     "LocalJsonlPromptInjectionDataset",
     "LocalVietnamesePromptInjectionAppSeed",
+    "LocalVietnamesePromptInjectionMentorSeed",
     "LocalVietnamesePromptInjectionSeed",
     "PromptInjectionDataset",
     "PromptInjectionExample",

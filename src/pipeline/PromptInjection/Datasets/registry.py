@@ -7,6 +7,9 @@ from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionSeed im
 from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionAppSeed import (
     LocalVietnamesePromptInjectionAppSeed,
 )
+from src.pipeline.PromptInjection.Datasets.LocalVietnamesePromptInjectionMentorSeed import (
+    LocalVietnamesePromptInjectionMentorSeed,
+)
 from src.pipeline.PromptInjection.Datasets.PromptInjectionDataset import (
     PromptInjectionDataset,
 )
@@ -14,6 +17,7 @@ from src.pipeline.PromptInjection.Datasets.PromptInjectionDataset import (
 
 PROMPT_INJECTION_DATASETS = {
     LocalVietnamesePromptInjectionAppSeed.name: LocalVietnamesePromptInjectionAppSeed,
+    LocalVietnamesePromptInjectionMentorSeed.name: LocalVietnamesePromptInjectionMentorSeed,
     LocalVietnamesePromptInjectionSeed.name: LocalVietnamesePromptInjectionSeed,
     HfPromptInjectionMultilingualDataset.name: HfPromptInjectionMultilingualDataset,
 }

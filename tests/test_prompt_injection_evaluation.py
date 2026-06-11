@@ -3,6 +3,7 @@ import json
 from scripts.mine_prompt_injection_errors import load_records, mine_errors, write_markdown
 from src.pipeline.PromptInjection import (
     LocalVietnamesePromptInjectionAppSeed,
+    LocalVietnamesePromptInjectionMentorSeed,
     LocalVietnamesePromptInjectionSeed,
     PromptInjectionEvaluationConfig,
     PromptInjectionEvaluationRunner,
@@ -33,6 +34,17 @@ def test_local_vietnamese_app_seed_loads_examples_and_is_registered():
     assert examples[0].is_injection is False
     assert any(example.category == "app_indirect_tool_abuse" for example in examples)
     assert any(example.expected_action == "block" for example in examples)
+
+
+def test_local_vietnamese_mentor_seed_loads_examples_and_is_registered():
+    examples = LocalVietnamesePromptInjectionMentorSeed().load()
+
+    assert "local_vietnamese_mentor_seed" in list_prompt_injection_dataset_names()
+    assert len(examples) == 25
+    assert examples[0].input_id == "vi-mentor-001"
+    assert examples[0].is_injection is False
+    assert any(example.category == "mentor_indirect_tool_abuse" for example in examples)
+    assert any(example.expected_action == "review" for example in examples)
 
 
 def test_prompt_injection_evaluator_reports_metrics_and_logs(tmp_path):
@@ -94,6 +106,20 @@ def test_prompt_injection_evaluator_runs_app_seed_without_logging():
     assert output["counts"]["tp"] > 0
     assert output["counts"]["tn"] > 0
     assert output["action_counts"]["total"] == 30
+
+
+def test_prompt_injection_evaluator_runs_mentor_seed_without_logging():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(dataset="local_vietnamese_mentor_seed", no_log=True)
+    )
+
+    output = runner.run()
+
+    assert output["dataset"] == "local_vietnamese_mentor_seed"
+    assert output["rows"] == 25
+    assert output["counts"]["tp"] > 0
+    assert output["counts"]["tn"] > 0
+    assert output["action_counts"]["total"] == 25
 
 
 def test_prompt_injection_error_miner_summarizes_decision_logs(tmp_path):
