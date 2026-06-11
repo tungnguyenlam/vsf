@@ -83,6 +83,59 @@ def test_prompt_injection_evaluator_reports_metrics_and_logs(tmp_path):
     assert readable == records
 
 
+def test_prompt_injection_evaluator_replaces_existing_log_for_same_path(tmp_path):
+    log_path = tmp_path / "prompt" / "decisions.jsonl"
+    config = PromptInjectionEvaluationConfig(
+        dataset="local_vietnamese_mentor_seed",
+        log_path=log_path,
+        include_source_text=True,
+        run_id="repeatable-run",
+    )
+
+    PromptInjectionEvaluationRunner(config).run()
+    PromptInjectionEvaluationRunner(config).run()
+
+    records = read_jsonl(log_path)
+    readable = json.loads(log_path.with_suffix(".readable.json").read_text(encoding="utf-8"))
+    assert len(records) == 25
+    assert len(readable) == 25
+    assert readable == records
+
+
+def test_local_vietnamese_seed_matches_expected_actions():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(dataset="local_vietnamese_seed", no_log=True)
+    )
+
+    output = runner.run()
+
+    assert output["metrics"] == {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+    }
+    assert output["action_counts"] == {"correct": 43, "total": 43}
+    assert output["action_metrics"] == {"accuracy": 1.0}
+
+
+def test_local_vietnamese_mentor_seed_matches_expected_actions():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(dataset="local_vietnamese_mentor_seed", no_log=True)
+    )
+
+    output = runner.run()
+
+    assert output["metrics"] == {
+        "accuracy": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+    }
+    assert output["action_counts"] == {"correct": 25, "total": 25}
+    assert output["action_metrics"] == {"accuracy": 1.0}
+
+
 def test_prompt_injection_evaluator_can_disable_logging():
     runner = PromptInjectionEvaluationRunner(
         PromptInjectionEvaluationConfig(dataset="local_vietnamese_seed", no_log=True)

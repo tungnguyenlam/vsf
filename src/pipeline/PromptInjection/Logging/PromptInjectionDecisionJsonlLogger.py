@@ -9,6 +9,10 @@ class PromptInjectionDecisionJsonlLogger:
         self.path = Path(path)
         self.readable_path = self.path.with_suffix(".readable.json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("", encoding="utf-8")
+        with self.readable_path.open("w", encoding="utf-8") as handle:
+            json.dump([], handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
 
     def log_decision(
         self,

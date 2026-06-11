@@ -9,6 +9,8 @@ Added the first reproducible evaluation path for the prompt-injection checkpoint
 - local Vietnamese seed benchmark: `data/prompt_injection/vietnamese_seed.jsonl`
 - local Vietnamese app-shaped smoke benchmark:
   `data/prompt_injection/vietnamese_app_seed.jsonl`
+- local Vietnamese mentor/demo smoke benchmark:
+  `data/prompt_injection/vietnamese_mentor_seed.jsonl`
 - HuggingFace dataset adapter: `rikka-snow/prompt-injection-multilingual`
 - binary evaluator CLI: `scripts/evaluate_prompt_injection.py`
 - JSONL decision logs under `output/prompt_injection/<run-id>/decisions.jsonl`
@@ -80,6 +82,30 @@ covered benign policy summaries, app-shaped tool permission bypasses,
 retrieved-document attacks, and credential/user-data exfiltration phrasing.
 After targeted rule updates, action accuracy is 1.0000 on all 30 rows.
 
+Mentor/demo smoke command:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_mentor_seed \
+  --run-id prompt-injection-mentor-seed \
+  --include-source-text
+```
+
+Result:
+
+| Dataset | Rows | Precision | Recall | F1 | TP | FP | TN | FN |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `local_vietnamese_mentor_seed` | 25 | 1.0000 | 1.0000 | 1.0000 | 15 | 0 | 10 | 0 |
+
+After targeted rule tuning, action accuracy is 1.0000 on all 25 rows. The
+regression fixes covered developer-message priority override phrasing,
+production API-key/file-config exfiltration, stealth webhook exfiltration,
+Vietnamese `tắt guardrail` jailbreak phrasing, plain `xuất dữ liệu cá nhân`,
+and the boundary between encoded hidden instructions (`review`) and direct
+shell/terminal permission bypass (`block`). The mined error summary is written
+to `output/prompt_injection_error_analysis/prompt-injection-mentor-seed/summary.md`
+and currently has no false positives, false negatives, or action mismatches.
+
 Command:
 
 ```bash
@@ -102,6 +128,6 @@ cross-language smoke coverage, not the current target metric.
 
 ## Recommendation
 
-Next, supplement the hand-written seed with mentor/application examples and use
-the decision-log miner after each rule change so future misses are summarized by
-category, expected action, score, and matched rules.
+Promote the local seed, app seed, and mentor seed as strict regression checks
+for deterministic prompt-injection rule work. Keep the HF multilingual sample as
+cross-language smoke evidence, not a Vietnamese target metric.

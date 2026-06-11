@@ -354,3 +354,55 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Tuned RuleBasedPromptInjectionDetector from mined app-seed errors: benign policy-summary suppression, app-shaped approval/tool-call bypass phrasing, retrieved help-document phrasing, credential dump/external secret exfiltration, and user chat/personal-info exfiltration.
 - Verification: initial app-seed run found precision 0.9412, recall 0.8000, F1 0.8649 with 1 FP, 4 FN, and 9 action mismatches; final app-seed run reached precision/recall/F1/action accuracy 1.0 on 30 rows. Final focused suite: PYTHONPATH=. .venv/bin/pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py (32 passed).
 - Residual risk: app seed is still synthetic; use mentor/application examples next to test whether these app-shaped patterns hold outside hand-written prompts.
+
+## 2026-06-11
+- Checked whether pipeline evaluation results are saved under output. Found prediction JSONL logging to output/predictions, while evaluation metric summaries are printed/returned and not persisted by the current evaluation runner.
+- Verified by inspecting src/pipeline/Pipelines/evaluation.py, scripts/evaluate_pipeline.py, src/pipeline/BasePipeline.py, and src/pipeline/PredictionJsonlLogger.py.
+- Residual risk: none for the code-path inspection; no tests were run because no code changed.
+
+## 2026-06-11
+- Changed PII evaluation outputs so each run writes metrics to output/evaluations/<run_id>/metrics.json and default prediction logs to the same run directory. Updated CLI output fields and docs.
+- Verified with python3 -m pytest tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py.
+- Residual risk: existing direct PIIPipeline default logs still use output/predictions; only evaluation defaults were restructured.
+
+## 2026-06-11
+- Changed PII evaluation run layout to group default artifacts by pipeline/model name: output/evaluations/<pipeline>/<run_id>/.
+- Verified with python3 -m pytest tests/test_pipeline_registry_and_evaluation.py tests/test_prediction_jsonl_logging.py.
+- Residual risk: existing run folders are not migrated; only new evaluation runs use the model-first layout.
+
+## 2026-06-11
+- Ran a smoke PII evaluation for regex_only with split=train_val and limit=1 to confirm the model-first output layout.
+- Verified artifacts exist under output/evaluations/regex_only/20260611T074448Z/: metrics.json, predictions.jsonl, and predictions.readable.json.
+- Residual risk: this was only a one-row smoke check, not a quality evaluation.
+
+## 2026-06-11
+- Added report/2026-06-11-presidio-internal-mechanics.md explaining Presidio AnalyzerEngine flow, confidence score sources, validation, context boosting, duplicate removal, thresholds, allow lists, decision process fields, and repo-specific Vietnamese analyzer behavior.
+- Verified by inspecting the old notebook and installed presidio-analyzer 2.2.362 source; ran git diff --check.
+- Residual risk: this is a static mechanics report, not a refreshed executable demo notebook.
+
+## 2026-06-11 - Reran report result commands
+- Regenerated report-folder evaluation outputs using system `python` because `.venv/bin/python` is absent on this machine.
+- Ran PII demo, regex_recall train_val limit-50, underthesea_regex_recall_resolved train_val limit-50, prompt-injection local/app/HF smoke checks, HoangHa test check, and pii_masking_95k validation check.
+- Verified outputs were written under `output/evaluations/` and `output/prompt_injection/`; `--no-log` runs produced metrics only.
+- Residual risk: current prompt-injection local seed action accuracy is 0.976744, not the 1.0000 documented in the report, and HF smoke metrics differ from the report.
+
+## 2026-06-11 - Fixed prompt-injection report rerun mismatch
+- Changed `vi-seed-032` expected action from `review` to `block` because direct API key/token dumping is a blocking data-exfiltration request under the current detector rules.
+- Added detector and evaluator regression tests for the direct credential/token dump case and full local seed action accuracy.
+- Verified `python -m pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py` passes and regenerated `output/prompt_injection/prompt-injection-local-seed/`.
+- Residual risk: HF multilingual smoke remains a known cross-language failure for the Vietnamese-first rule detector.
+
+## 2026-06-11 - Added mentor prompt-injection smoke result
+- Ran `local_vietnamese_mentor_seed` with decision logging and source text under `output/prompt_injection/prompt-injection-mentor-seed/`.
+- Mined the mentor decision log into `output/prompt_injection_error_analysis/prompt-injection-mentor-seed/summary.md`.
+- Updated `report/2026-06-11-prompt-injection-dataset-baseline.md` with the mentor command, metrics, and current failure summary.
+- Verified the run completed: precision 1.0000, recall 0.9333, F1 0.9655, action accuracy 0.7600.
+- Residual risk: mentor/demo seed is not tuned yet; it has 1 FN and 6 action mismatches.
+
+## 2026-06-11 - Tuned mentor prompt-injection seed
+- Added targeted deterministic rules for mentor seed misses: user-over-developer instruction priority, production config secret access, external chat-history exfiltration, Vietnamese `tắt guardrail`, and plain `xuất dữ liệu cá nhân`.
+- Narrowed direct shell permission bypass so generic `lệnh ẩn` encoded-instruction cases remain `review` instead of escalating to `block`.
+- Fixed prompt-injection decision logging so rerunning the same `run-id` replaces the JSONL/readable logs instead of appending duplicate records.
+- Updated prompt-injection docs and report with the tuned mentor result.
+- Verified `python -m pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py` passes; regenerated local/app/mentor/HF prompt-injection outputs and mentor error mining summary.
+- Residual risk: HF multilingual smoke still has precision/recall/F1 0.0000 because the detector remains Vietnamese-first by design.

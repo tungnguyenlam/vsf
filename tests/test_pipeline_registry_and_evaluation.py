@@ -5,6 +5,7 @@ from presidio_analyzer import AnalysisExplanation, RecognizerResult
 
 from src.pipeline.Evaluator import PIIEvaluator
 from src.pipeline.BasePipeline import PIIPipeline
+import src.pipeline.Pipelines.evaluation as pipeline_evaluation
 from src.pipeline.Pipelines import (
     BaselinePresidioPipeline,
     HybridRegexPipeline,
@@ -18,6 +19,7 @@ from src.pipeline.Pipelines import (
     get_pipeline,
     get_pipeline_class,
 )
+from src.pipeline.Pipelines.evaluation import PipelineEvaluationConfig, PipelineEvaluationRunner
 from src.pipeline.NERWrappers.UndertheseaNER import UndertheseaNER
 from src.pipeline.Recognizers.CustomPatternRecognizer import CustomPatternRecognizer
 from src.pipeline.Resolvers import DeterministicResolver
@@ -225,3 +227,74 @@ def test_evaluator_pipeline_logging_records_ids_results_and_ground_truth(tmp_pat
         {"start": 6, "end": 22, "label": "DIA_CHI_EMAIL"},
     ]
     assert records[0]["results"][0]["entity_type"] == "EMAIL_ADDRESS"
+
+
+def test_pipeline_evaluation_writes_metrics_and_predictions_to_run_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_evaluation, "DEFAULT_EVALUATION_OUTPUT_DIR", tmp_path / "evaluations")
+    runner = PipelineEvaluationRunner(
+        PipelineEvaluationConfig(
+            pipeline="regex_only",
+            dataset="pii_masking_95k",
+            split="train_val",
+        )
+    )
+    runner.run_id = "eval-run-001"
+    runner._load_dataset = lambda: pd.DataFrame(
+        [
+            {
+                "input_id": "row-001",
+                "source_text": "Email user@example.com",
+                "privacy_mask": [
+                    {"start": 6, "end": 22, "label": "DIA_CHI_EMAIL"},
+                ],
+            }
+        ]
+    )
+
+    output = runner.run()
+
+    run_dir = tmp_path / "evaluations" / "regex_only" / "eval-run-001"
+    metrics_path = run_dir / "metrics.json"
+    log_path = run_dir / "predictions.jsonl"
+
+    assert output["run_id"] == "eval-run-001"
+    assert output["output_dir"] == str(run_dir)
+    assert output["metrics_path"] == str(metrics_path)
+    assert output["log_path"] == str(log_path)
+    assert metrics_path.exists()
+    assert log_path.exists()
+
+    saved_metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert saved_metrics == output
+    assert read_jsonl(log_path)[0]["run_id"] == "eval-run-001"
+
+
+def test_pipeline_evaluation_writes_metrics_when_prediction_logging_is_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_evaluation, "DEFAULT_EVALUATION_OUTPUT_DIR", tmp_path / "evaluations")
+    runner = PipelineEvaluationRunner(
+        PipelineEvaluationConfig(
+            pipeline="regex_only",
+            dataset="pii_masking_95k",
+            split="train_val",
+            no_log=True,
+        )
+    )
+    runner.run_id = "eval-no-log"
+    runner._load_dataset = lambda: pd.DataFrame(
+        [
+            {
+                "input_id": "row-001",
+                "source_text": "Email user@example.com",
+                "privacy_mask": [
+                    {"start": 6, "end": 22, "label": "DIA_CHI_EMAIL"},
+                ],
+            }
+        ]
+    )
+
+    output = runner.run()
+
+    metrics_path = tmp_path / "evaluations" / "regex_only" / "eval-no-log" / "metrics.json"
+    assert output["log_path"] is None
+    assert output["metrics_path"] == str(metrics_path)
+    assert metrics_path.exists()

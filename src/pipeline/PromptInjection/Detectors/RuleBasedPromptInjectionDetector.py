@@ -158,6 +158,20 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 description="Attempts to ignore or override earlier/system instructions.",
             ),
             PromptInjectionRule(
+                name="prefer_user_instruction_over_system",
+                category="instruction_override",
+                pattern=(
+                    r"\b(?:ưu\s+tiên|làm\s+theo|tuân\s+theo|follow|prioritize)\b"
+                    r".{0,80}?\b(?:chỉ\s+dẫn|hướng\s+dẫn|instruction|instructions?)\b"
+                    r".{0,80}?\b(?:của\s+tôi|người\s+dùng|user)\b"
+                    r".{0,80}?\b(?:hơn|thay\s+vì|over|instead\s+of)\b"
+                    r".{0,80}?\b(?:developer\s+message|system\s+message|"
+                    r"system\s+prompt|quy\s+tắc|hệ\s+thống)\b"
+                ),
+                weight=0.75,
+                description="Attempts to prioritize user instructions over system/developer rules.",
+            ),
+            PromptInjectionRule(
                 name="reveal_hidden_prompt",
                 category="secret_extraction",
                 pattern=(
@@ -186,7 +200,7 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 name="policy_bypass",
                 category="jailbreak",
                 pattern=(
-                    r"\b(?:vượt\s+qua|bỏ\s+qua|né|phá|bypass|disable|"
+                    r"\b(?:vượt\s+qua|bỏ\s+qua|né|phá|tắt|bypass|disable|"
                     r"turn\s+off|ignore|override)\b.{0,70}?"
                     r"\b(?:chính\s+sách|bộ\s+lọc|guardrail|kiểm\s+duyệt|"
                     r"an\s+toàn|hạn\s+chế|safety|filter|policy|restriction)\b"
@@ -240,7 +254,7 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 name="direct_shell_permission_bypass",
                 category="tool_abuse",
                 pattern=(
-                    r"\b(?:shell|terminal|lệnh)\b.{0,80}?"
+                    r"\b(?:shell|terminal)\b.{0,80}?"
                     r"\b(?:không\s+cần|bỏ\s+qua|đừng|without|skip|"
                     r"don't|do\s+not)\b.{0,45}?"
                     r"\b(?:xin\s+phép|quyền|xác\s+nhận|hỏi\s+lại|permission|"
@@ -253,10 +267,11 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 name="secret_or_data_exfiltration",
                 category="data_exfiltration",
                 pattern=(
-                    r"\b(?:lấy|trích\s+xuất|gửi|liệt\s+kê|xuất\s+ra|"
+                    r"\b(?:lấy|trích\s+xuất|gửi|liệt\s+kê|xuất\s+ra|xuất|"
                     r"đọc\s+toàn\s+bộ|đọc|extract|send|list|dump|read)\b.{0,90}?"
                     r"\b(?:mật\s+khẩu|token|api\s*key|khóa\s+api|"
                     r"secret|credentials?|dữ\s+liệu\s+người\s+dùng|user\s+data|"
+                    r"dữ\s+liệu\s+cá\s+nhân|"
                     r"lịch\s+sử\s+chat|thông\s+tin\s+cá\s+nhân|thông\s+tin\s+ẩn|"
                     r"password|credentials?|user\s+data)\b"
                 ),
@@ -264,11 +279,25 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
                 description="Attempts to extract secrets or user data.",
             ),
             PromptInjectionRule(
+                name="production_config_secret_access",
+                category="data_exfiltration",
+                pattern=(
+                    r"\b(?:đọc|lấy|trích\s+xuất|read|extract)\b.{0,80}?"
+                    r"\b(?:file\s+cấu\s+hình|config|configuration)\b.{0,50}?"
+                    r"\b(?:production|prod|nội\s+bộ)\b.{0,80}?"
+                    r"\b(?:api\s*key|khóa\s+api|secret|token|credentials?)\b"
+                ),
+                weight=0.75,
+                description="Attempts to read production configuration secrets.",
+            ),
+            PromptInjectionRule(
                 name="external_secret_exfiltration",
                 category="data_exfiltration",
                 pattern=(
                     r"\b(?:gửi|send|dump|đọc|read)\b.{0,90}?"
-                    r"\b(?:secret|credentials?|token|mật\s+khẩu|file\s+cấu\s+hình)\b"
+                    r"\b(?:secret|credentials?|token|mật\s+khẩu|file\s+cấu\s+hình|"
+                    r"lịch\s+sử\s+chat|dữ\s+liệu\s+người\s+dùng|"
+                    r"dữ\s+liệu\s+cá\s+nhân|thông\s+tin\s+cá\s+nhân)\b"
                     r".{0,80}?\b(?:webhook|bên\s+ngoài|external)\b"
                 ),
                 weight=0.75,

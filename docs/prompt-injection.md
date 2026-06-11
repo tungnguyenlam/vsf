@@ -138,6 +138,8 @@ PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
 
 The evaluator writes JSONL decision logs under
 `output/prompt_injection/<run-id>/decisions.jsonl` unless `--no-log` is used.
+Rerunning the evaluator with the same `run-id` replaces that run's decision log
+instead of appending duplicate records.
 Use `--include-source-text` for local debugging logs; omit it for lighter logs.
 
 Mine false positives, false negatives, and action mismatches from a decision log:

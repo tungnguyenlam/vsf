@@ -2,10 +2,10 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from src.pipeline.BasePipeline import _DEFAULT_PREDICTION_LOG_PATH_SENTINEL
 from src.pipeline.Datasets import get_dataset, list_dataset_names
 from src.pipeline.Evaluator import PIIEvaluator
 from src.pipeline.Pipelines.registry import get_pipeline, list_pipeline_names
@@ -13,6 +13,7 @@ from src.pipeline.Utils import DEFAULT_DATASET_NAME, load_evaluation_dataset
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_EVALUATION_OUTPUT_DIR = PROJECT_ROOT / "output" / "evaluations"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class PipelineEvaluationConfig:
             verify_model=args.verify_model,
             verify_effort=args.verify_effort,
             verify_provider=args.verify_provider,
+            env_path=Path(args.env_path) if getattr(args, "env_path", None) is not None else None,
         )
 
 
@@ -90,7 +92,7 @@ def create_arg_parser():
     parser.add_argument(
         "--log-path",
         default=None,
-        help="JSONL log path. Defaults to output/predictions/<timestamp>/predictions.jsonl.",
+        help="JSONL log path. Defaults to output/evaluations/<pipeline>/<run_id>/predictions.jsonl.",
     )
     parser.add_argument("--no-log", action="store_true", help="Disable JSONL prediction logging.")
     parser.add_argument("--include-source-text", action="store_true")
@@ -136,6 +138,7 @@ class PipelineEvaluationRunner:
     def __init__(self, config: PipelineEvaluationConfig):
         self.config = config
         self.dataset = None
+        self.run_id = datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
 
     def run(self) -> dict:
         load_local_env(self.config.env_path)
@@ -153,7 +156,9 @@ class PipelineEvaluationRunner:
             return_per_entity=True,
             return_per_label=self.config.per_label,
         )
-        return self._format_output(evaluation, rows=len(df_eval), pipeline=pipeline)
+        output = self._format_output(evaluation, rows=len(df_eval), pipeline=pipeline)
+        self._write_metrics(output)
+        return output
 
     def _load_dataset(self):
         if self.config.dataset in list_dataset_names():
@@ -172,6 +177,7 @@ class PipelineEvaluationRunner:
     def _build_pipeline(self):
         return get_pipeline(
             self.config.pipeline,
+            run_id=self.run_id,
             prediction_log_path=self._resolve_log_path(),
             include_source_text=self.config.include_source_text,
             default_score_threshold=self.config.score_threshold,
@@ -195,8 +201,21 @@ class PipelineEvaluationRunner:
         if self.config.no_log:
             return None
         if self.config.log_path is None:
-            return _DEFAULT_PREDICTION_LOG_PATH_SENTINEL
+            return self._run_dir() / "predictions.jsonl"
         return self.config.log_path
+
+    def _run_dir(self):
+        return DEFAULT_EVALUATION_OUTPUT_DIR / self.config.pipeline / self.run_id
+
+    def _metrics_path(self):
+        return self._run_dir() / "metrics.json"
+
+    def _write_metrics(self, output: dict):
+        metrics_path = self._metrics_path()
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        with metrics_path.open("w", encoding="utf-8") as handle:
+            json.dump(output, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
 
     def _format_output(self, evaluation, *, rows: int, pipeline) -> dict:
         resolved_log_path = (
@@ -205,9 +224,13 @@ class PipelineEvaluationRunner:
             else None
         )
         output = {
+            "run_id": self.run_id,
             "pipeline": self.config.pipeline,
+            "dataset": self.config.dataset,
             "rows": rows,
             "split": self.config.split,
+            "output_dir": str(self._run_dir()),
+            "metrics_path": str(self._metrics_path()),
             "log_path": str(resolved_log_path) if resolved_log_path else None,
         }
         if self.config.per_label:

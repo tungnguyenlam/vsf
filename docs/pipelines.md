@@ -113,16 +113,28 @@ result = PipelineEvaluationRunner(config).run()
 The runner loads local `.env` values before dataset and verifier setup, so `HF_TOKEN`
 and `OPENROUTER_API_KEY` can live in `.env` for CLI runs.
 
-## Prediction Logs
+## Evaluation Artifacts
 
-By default, evaluation writes logs under:
+By default, evaluation writes one directory per run under:
 
 ```text
-output/predictions/<run_id>/predictions.jsonl
-output/predictions/<run_id>/predictions.readable.json
+output/evaluations/<pipeline>/<run_id>/
 ```
 
-Use `--no-log` to disable logging, or `--log-path` to choose an explicit JSONL path.
+Each run directory contains:
+
+```text
+metrics.json
+predictions.jsonl
+predictions.readable.json
+```
+
+`metrics.json` is the same summary printed by the CLI, including `run_id`,
+`output_dir`, `metrics_path`, and `log_path`.
+
+Use `--no-log` to disable prediction logging, or `--log-path` to choose an
+explicit JSONL path. Metrics are still written to
+`output/evaluations/<pipeline>/<run_id>/metrics.json`.
 Raw `source_text` is not logged unless `--include-source-text` is passed.
 
 ## Verifier Output
