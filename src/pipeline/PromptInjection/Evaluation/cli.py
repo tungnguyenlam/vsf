@@ -2,6 +2,7 @@ import argparse
 import json
 
 from src.pipeline.PromptInjection.Datasets import list_prompt_injection_dataset_names
+from src.pipeline.PromptInjection.Detectors import list_prompt_injection_detector_names
 from src.pipeline.PromptInjection.Evaluation.PromptInjectionEvaluationConfig import (
     PromptInjectionEvaluationConfig,
 )
@@ -19,6 +20,11 @@ def create_arg_parser():
         default="local_vietnamese_seed",
         choices=list_prompt_injection_dataset_names(),
     )
+    parser.add_argument(
+        "--detector",
+        default="rule_based_prompt_injection",
+        choices=list_prompt_injection_detector_names(),
+    )
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--random-state", type=int, default=42)
@@ -26,6 +32,7 @@ def create_arg_parser():
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--include-source-text", action="store_true")
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--train-strategy", default="none", choices=["none", "leave_one_out"])
     return parser
 
 

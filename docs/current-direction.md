@@ -89,11 +89,9 @@ The last implementation task added a conservative deterministic resolver:
 - purpose: drop some Underthesea `PERSON` false positives using recognizer
   provenance and local Vietnamese context,
 - result: small but directionally useful gain on small validation/train_val
-  slices.
-
-The next resolver-specific improvement should be resolver decision logging,
-because current prediction JSONL only contains final kept spans, not dropped
-candidates.
+  slices,
+- audit: resolver-enabled prediction logs now include `resolver_audit`, plus a
+  generated `predictions.audit.md` for manual keep/drop review.
 
 ## Suggested Next Task
 
@@ -112,4 +110,3 @@ Before prompt injection detection:
 
 After that checkpoint is presentable, move to prompt injection detection as the
 next pipeline.
-

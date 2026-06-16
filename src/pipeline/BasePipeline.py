@@ -109,7 +109,7 @@ class PIIPipeline(BaseModel):
         ground_truth = kwargs.get("ground_truth")
         
         if isinstance(inputs, str):
-            results = self._analyze_text(
+            results, resolver_audit = self._analyze_text_with_audit(
                 inputs,
                 language=language,
                 score_threshold=score_threshold,
@@ -123,12 +123,13 @@ class PIIPipeline(BaseModel):
                     ground_truth=ground_truth,
                     language=language,
                     score_threshold=score_threshold,
+                    resolver_audit=resolver_audit,
                 )
             return results
         elif hasattr(inputs, "__iter__"):
             input_texts = list(inputs)
-            results_by_input = [
-                self._analyze_text(
+            analyzed_by_input = [
+                self._analyze_text_with_audit(
                     text,
                     language=language,
                     score_threshold=score_threshold,
@@ -136,8 +137,9 @@ class PIIPipeline(BaseModel):
                 )
                 for text in input_texts
             ]
+            results_by_input = [results for results, _ in analyzed_by_input]
             if logging_enabled:
-                for index, (text, results) in enumerate(zip(input_texts, results_by_input)):
+                for index, (text, (results, resolver_audit)) in enumerate(zip(input_texts, analyzed_by_input)):
                     self._log_prediction(
                         text=text,
                         results=results,
@@ -145,11 +147,21 @@ class PIIPipeline(BaseModel):
                         ground_truth=self._value_for_index(ground_truth, index),
                         language=language,
                         score_threshold=score_threshold,
+                        resolver_audit=resolver_audit,
                     )
             return results_by_input
         return []
 
     def _analyze_text(self, text, *, language, score_threshold, logging_enabled):
+        results, _ = self._analyze_text_with_audit(
+            text,
+            language=language,
+            score_threshold=score_threshold,
+            logging_enabled=logging_enabled,
+        )
+        return results
+
+    def _analyze_text_with_audit(self, text, *, language, score_threshold, logging_enabled):
         analyze_kwargs = {
             "text": text,
             "language": language,
@@ -159,13 +171,31 @@ class PIIPipeline(BaseModel):
         if logging_enabled or self.verifier is not None:
             analyze_kwargs["return_decision_process"] = True
         results = self.analyzer.analyze(**analyze_kwargs)
+        resolver_audit = None
         if self.resolver is not None:
-            results = self.resolver.resolve(text, results, language=language)
+            if hasattr(self.resolver, "resolve_with_audit"):
+                results, resolver_audit = self.resolver.resolve_with_audit(
+                    text,
+                    results,
+                    language=language,
+                )
+            else:
+                results = self.resolver.resolve(text, results, language=language)
         if self.verifier is not None:
             results = self.verifier.verify(text, results, language=language)
-        return results
+        return results, resolver_audit
 
-    def _log_prediction(self, *, text, results, input_id, ground_truth, language, score_threshold):
+    def _log_prediction(
+        self,
+        *,
+        text,
+        results,
+        input_id,
+        ground_truth,
+        language,
+        score_threshold,
+        resolver_audit,
+    ):
         anonymized_text = None
         if self.include_anonymized_text:
             anonymized_text = AnonymizerEngine().anonymize(text=text, analyzer_results=results).text
@@ -182,6 +212,7 @@ class PIIPipeline(BaseModel):
             ground_truth=ground_truth,
             include_source_text=self.include_source_text,
             include_detected_text=self.include_detected_text,
+            resolver_audit=resolver_audit,
         )
 
     def _value_for_index(self, value, index):

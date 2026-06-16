@@ -406,3 +406,18 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated prompt-injection docs and report with the tuned mentor result.
 - Verified `python -m pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py` passes; regenerated local/app/mentor/HF prompt-injection outputs and mentor error mining summary.
 - Residual risk: HF multilingual smoke still has precision/recall/F1 0.0000 because the detector remains Vietnamese-first by design.
+
+## 2026-06-12 - Added PII resolver audit logs
+- Added structured resolver_audit records for deterministic PII resolver decisions, including keep/drop action, reason, span text, context, recognizer, and counts.
+- Added generated predictions.audit.md beside prediction JSONL/readable logs so humans can review final spans and resolver drops without reading raw JSON.
+- Updated pipeline docs and current-direction notes for the new audit artifact.
+- Verified with: python -m pytest -q tests/test_prediction_jsonl_logging.py tests/test_pipeline_registry_and_evaluation.py (20 passed).
+- Residual risk: audit currently covers the deterministic resolver stage only; verifier decisions are still represented through final spans rather than a separate verifier decision table.
+
+## 2026-06-12 - Ran resolver audit sample
+- Ran underthesea_regex_recall_resolved on a 50-row train_val sample with source text; generated metrics plus predictions.jsonl/readable/audit artifacts under output/evaluations/underthesea_regex_recall_resolved/20260612T090729Z.
+- Because the 50-row sample had no resolver drops, ran a 500-row train_val sample under output/evaluations/underthesea_regex_recall_resolved/20260612T105503Z for manual audit coverage.
+- 500-row metrics: precision 0.9667, recall 0.8993, F1 0.9317; resolver audit had 2,069 keep decisions and 4 drops across 4 rows.
+- Drop reasons: 3 document/code-field context drops and 1 organization-context drop.
+- Residual risk: this is a deterministic train_val sample and not final reporting; the human audit still needs a manual correctness pass over the four dropped rows in predictions.audit.md.
+- 2026-06-16: Added pluggable prompt-injection detectors with an experimental trainable char-ngram baseline, leave-one-out evaluation support, and detector selection in the prompt-injection CLI/docs. Verified with python3 -m pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py and manual detector comparison on local_vietnamese_seed/local_vietnamese_mentor_seed. Residual risk: the trainable baseline is intentionally weak and current seed datasets are too small and rule-aligned to judge a production model fairly.

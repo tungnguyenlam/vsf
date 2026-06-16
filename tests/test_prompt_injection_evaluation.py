@@ -175,6 +175,42 @@ def test_prompt_injection_evaluator_runs_mentor_seed_without_logging():
     assert output["action_counts"]["total"] == 25
 
 
+def test_prompt_injection_evaluator_supports_char_ngram_leave_one_out():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="local_vietnamese_seed",
+            detector="char_ngram_prompt_injection",
+            train_strategy="leave_one_out",
+            no_log=True,
+        )
+    )
+
+    output = runner.run()
+
+    assert output["detector"] == "char_ngram_prompt_injection"
+    assert output["rows"] == 65
+    assert output["metrics"]["recall"] > 0.5
+    assert output["metrics"]["precision"] > 0.5
+
+
+def test_prompt_injection_evaluator_rejects_training_strategy_for_rule_detector():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="local_vietnamese_seed",
+            detector="rule_based_prompt_injection",
+            train_strategy="leave_one_out",
+            no_log=True,
+        )
+    )
+
+    try:
+        runner.run()
+    except ValueError as exc:
+        assert "does not support training" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for unsupported training strategy.")
+
+
 def test_prompt_injection_error_miner_summarizes_decision_logs(tmp_path):
     log_path = tmp_path / "decisions.jsonl"
     records = [

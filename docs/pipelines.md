@@ -127,10 +127,14 @@ Each run directory contains:
 metrics.json
 predictions.jsonl
 predictions.readable.json
+predictions.audit.md
 ```
 
 `metrics.json` is the same summary printed by the CLI, including `run_id`,
 `output_dir`, `metrics_path`, and `log_path`.
+`predictions.audit.md` is generated from the JSONL log for quick human review:
+it lists final spans and, when a resolver is active, each resolver keep/drop
+decision with the matched text, left context, recognizer, and reason.
 
 Use `--no-log` to disable prediction logging, or `--log-path` to choose an
 explicit JSONL path. Metrics are still written to
@@ -162,6 +166,11 @@ The first resolver version is conservative: it only suppresses Underthesea
 `PERSON` candidates when left-side context strongly indicates organization,
 document, product, or code fields, while keeping candidates supported by person
 labels such as `Họ và tên` or `Khách hàng`.
+
+Resolver-enabled runs add a `resolver_audit` object to each prediction JSONL
+record and mirror the same decisions in `predictions.audit.md`. For manual
+review, start with rows where `Resolver drops` is non-zero and check whether the
+left context really supports the drop reason.
 
 ## Dataset-Tuned Regex Variant
 

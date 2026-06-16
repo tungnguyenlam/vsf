@@ -52,32 +52,77 @@ class DeterministicResolver:
         *,
         language: str = "vi",
     ) -> List[RecognizerResult]:
-        if not results:
-            return results
-
-        resolved = []
-        for result in results:
-            if self._should_drop(text, result):
-                continue
-            resolved.append(result)
+        resolved, _ = self.resolve_with_audit(text, results, language=language)
         return resolved
 
+    def resolve_with_audit(
+        self,
+        text: str,
+        results: List[RecognizerResult],
+        *,
+        language: str = "vi",
+    ) -> tuple[List[RecognizerResult], dict]:
+        if not results:
+            return results, {
+                "resolver": self.__class__.__name__,
+                "language": language,
+                "input_count": 0,
+                "output_count": 0,
+                "decisions": [],
+            }
+
+        resolved = []
+        decisions = []
+        for index, result in enumerate(results):
+            should_drop, reason = self._decision(text, result)
+            action = "drop" if should_drop else "keep"
+            decisions.append(
+                {
+                    "candidate_id": index,
+                    "action": action,
+                    "reason": reason,
+                    "entity_type": result.entity_type,
+                    "start": result.start,
+                    "end": result.end,
+                    "text": text[result.start:result.end],
+                    "score": result.score,
+                    "recognizer": BaseVerifier.source_of(result),
+                    "left_context": self._context(text, result)[0],
+                    "right_context": self._context(text, result)[1],
+                }
+            )
+            if should_drop:
+                continue
+            resolved.append(result)
+
+        return resolved, {
+            "resolver": self.__class__.__name__,
+            "language": language,
+            "input_count": len(results),
+            "output_count": len(resolved),
+            "decisions": decisions,
+        }
+
     def _should_drop(self, text: str, result: RecognizerResult) -> bool:
+        should_drop, _ = self._decision(text, result)
+        return should_drop
+
+    def _decision(self, text: str, result: RecognizerResult) -> tuple[bool, str]:
         if result.entity_type != "PERSON":
-            return False
+            return False, "not a PERSON candidate"
         if BaseVerifier.source_of(result) != "DeepLearning_UndertheseaNER":
-            return False
+            return False, "not produced by Underthesea PERSON recognizer"
 
         before, _ = self._context(text, result)
         left_context = before.lower()
 
         if self._PERSON_LABEL_RE.search(left_context):
-            return False
+            return False, "left context contains a person label"
         if self._ORG_CONTEXT_RE.search(left_context):
-            return True
+            return True, "left context indicates an organization"
         if self._FIELD_CONTEXT_RE.search(left_context):
-            return True
-        return False
+            return True, "left context indicates a document/code field"
+        return False, "no suppressing context matched"
 
     def _context(self, text: str, result: RecognizerResult) -> tuple[str, str]:
         start = max(0, result.start - self.context_window)

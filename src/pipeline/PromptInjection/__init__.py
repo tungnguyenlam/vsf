@@ -9,7 +9,10 @@ from src.pipeline.PromptInjection.Datasets import (
 )
 from src.pipeline.PromptInjection.Detectors import (
     BasePromptInjectionDetector,
+    CharNgramPromptInjectionDetector,
     RuleBasedPromptInjectionDetector,
+    get_prompt_injection_detector,
+    list_prompt_injection_detector_names,
 )
 from src.pipeline.PromptInjection.Evaluation import (
     PromptInjectionEvaluationConfig,
@@ -20,6 +23,7 @@ from src.pipeline.PromptInjection.Models import PromptInjectionResult, PromptInj
 
 __all__ = [
     "BasePromptInjectionDetector",
+    "CharNgramPromptInjectionDetector",
     "HfPromptInjectionMultilingualDataset",
     "LocalVietnamesePromptInjectionAppSeed",
     "LocalVietnamesePromptInjectionMentorSeed",
@@ -31,6 +35,8 @@ __all__ = [
     "PromptInjectionResult",
     "PromptInjectionRule",
     "RuleBasedPromptInjectionDetector",
+    "get_prompt_injection_detector",
     "get_prompt_injection_dataset",
+    "list_prompt_injection_detector_names",
     "list_prompt_injection_dataset_names",
 ]

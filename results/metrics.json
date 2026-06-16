@@ -1,0 +1,422 @@
+{
+  "regex_only": {
+    "run_id": "20260616T025941Z",
+    "pipeline": "regex_only",
+    "dataset": "nguyenlamtung/pii-masking-95k-preencoded",
+    "rows": 500,
+    "split": "validation",
+    "output_dir": "/home/tungnguyen/Work/vsf/output/evaluations/regex_only/20260616T025941Z",
+    "metrics_path": "/home/tungnguyen/Work/vsf/output/evaluations/regex_only/20260616T025941Z/metrics.json",
+    "log_path": null,
+    "overall": {
+      "precision": 0.9895397489539749,
+      "recall": 0.6921951219512195,
+      "f1": 0.8145809414466131,
+      "tp": 1419,
+      "fp": 15,
+      "fn": 631
+    },
+    "per_entity": {
+      "ID": {
+        "precision": 1.0,
+        "recall": 0.6923076923076923,
+        "f1": 0.8181818181818181,
+        "tp": 171,
+        "fp": 0,
+        "fn": 76
+      },
+      "DATE_TIME": {
+        "precision": 1.0,
+        "recall": 0.5371621621621622,
+        "f1": 0.6989010989010989,
+        "tp": 159,
+        "fp": 0,
+        "fn": 137
+      },
+      "PERSON": {
+        "precision": 1.0,
+        "recall": 0.4268867924528302,
+        "f1": 0.5983471074380166,
+        "tp": 181,
+        "fp": 0,
+        "fn": 243
+      },
+      "ORGANIZATION": {
+        "precision": 0.8865979381443299,
+        "recall": 0.441025641025641,
+        "f1": 0.5890410958904109,
+        "tp": 86,
+        "fp": 11,
+        "fn": 109
+      },
+      "BANK_ACCOUNT": {
+        "precision": 1.0,
+        "recall": 0.6190476190476191,
+        "f1": 0.7647058823529412,
+        "tp": 26,
+        "fp": 0,
+        "fn": 16
+      },
+      "LOCATION": {
+        "precision": 0.9972027972027973,
+        "recall": 0.9344692005242464,
+        "f1": 0.9648173207036536,
+        "tp": 713,
+        "fp": 2,
+        "fn": 50
+      },
+      "EMAIL_ADDRESS": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "tp": 34,
+        "fp": 0,
+        "fn": 0
+      },
+      "PHONE_NUMBER": {
+        "precision": 0.9607843137254902,
+        "recall": 1.0,
+        "f1": 0.98,
+        "tp": 49,
+        "fp": 2,
+        "fn": 0
+      }
+    }
+  },
+  "regex_recall": {
+    "run_id": "20260616T025954Z",
+    "pipeline": "regex_recall",
+    "dataset": "nguyenlamtung/pii-masking-95k-preencoded",
+    "rows": 500,
+    "split": "validation",
+    "output_dir": "/home/tungnguyen/Work/vsf/output/evaluations/regex_recall/20260616T025954Z",
+    "metrics_path": "/home/tungnguyen/Work/vsf/output/evaluations/regex_recall/20260616T025954Z/metrics.json",
+    "log_path": null,
+    "overall": {
+      "precision": 0.9869835880022637,
+      "recall": 0.8507317073170731,
+      "f1": 0.9138066544406602,
+      "tp": 1744,
+      "fp": 23,
+      "fn": 306
+    },
+    "per_entity": {
+      "ID": {
+        "precision": 1.0,
+        "recall": 0.9271255060728745,
+        "f1": 0.9621848739495799,
+        "tp": 229,
+        "fp": 0,
+        "fn": 18
+      },
+      "DATE_TIME": {
+        "precision": 1.0,
+        "recall": 0.8885135135135135,
+        "f1": 0.9409660107334525,
+        "tp": 263,
+        "fp": 0,
+        "fn": 33
+      },
+      "PERSON": {
+        "precision": 0.9957983193277311,
+        "recall": 0.5589622641509434,
+        "f1": 0.7160120845921449,
+        "tp": 237,
+        "fp": 1,
+        "fn": 187
+      },
+      "ORGANIZATION": {
+        "precision": 0.8957055214723927,
+        "recall": 0.7487179487179487,
+        "f1": 0.8156424581005586,
+        "tp": 146,
+        "fp": 17,
+        "fn": 49
+      },
+      "BANK_ACCOUNT": {
+        "precision": 1.0,
+        "recall": 0.9761904761904762,
+        "f1": 0.9879518072289156,
+        "tp": 41,
+        "fp": 0,
+        "fn": 1
+      },
+      "LOCATION": {
+        "precision": 0.9959893048128342,
+        "recall": 0.9764089121887287,
+        "f1": 0.986101919258769,
+        "tp": 745,
+        "fp": 3,
+        "fn": 18
+      },
+      "EMAIL_ADDRESS": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "tp": 34,
+        "fp": 0,
+        "fn": 0
+      },
+      "PHONE_NUMBER": {
+        "precision": 0.9607843137254902,
+        "recall": 1.0,
+        "f1": 0.98,
+        "tp": 49,
+        "fp": 2,
+        "fn": 0
+      }
+    }
+  },
+  "underthesea_ner": {
+    "run_id": "20260616T030007Z",
+    "pipeline": "underthesea_ner",
+    "dataset": "nguyenlamtung/pii-masking-95k-preencoded",
+    "rows": 500,
+    "split": "validation",
+    "output_dir": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_ner/20260616T030007Z",
+    "metrics_path": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_ner/20260616T030007Z/metrics.json",
+    "log_path": null,
+    "overall": {
+      "precision": 0.5850622406639004,
+      "recall": 0.1375609756097561,
+      "f1": 0.2227488151658768,
+      "tp": 282,
+      "fp": 200,
+      "fn": 1768
+    },
+    "per_entity": {
+      "DATE_TIME": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 296
+      },
+      "ID": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 247
+      },
+      "PERSON": {
+        "precision": 0.5850622406639004,
+        "recall": 0.6650943396226415,
+        "f1": 0.6225165562913908,
+        "tp": 282,
+        "fp": 200,
+        "fn": 142
+      },
+      "ORGANIZATION": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 195
+      },
+      "BANK_ACCOUNT": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 42
+      },
+      "LOCATION": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 763
+      },
+      "PHONE_NUMBER": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 49
+      },
+      "EMAIL_ADDRESS": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "tp": 0,
+        "fp": 0,
+        "fn": 34
+      }
+    }
+  },
+  "underthesea_regex": {
+    "run_id": "20260616T030033Z",
+    "pipeline": "underthesea_regex",
+    "dataset": "nguyenlamtung/pii-masking-95k-preencoded",
+    "rows": 500,
+    "split": "validation",
+    "output_dir": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_regex/20260616T030033Z",
+    "metrics_path": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_regex/20260616T030033Z/metrics.json",
+    "log_path": null,
+    "overall": {
+      "precision": 0.9707192870782941,
+      "recall": 0.7439024390243902,
+      "f1": 0.8423087544877106,
+      "tp": 1525,
+      "fp": 46,
+      "fn": 525
+    },
+    "per_entity": {
+      "ID": {
+        "precision": 1.0,
+        "recall": 0.6923076923076923,
+        "f1": 0.8181818181818181,
+        "tp": 171,
+        "fp": 0,
+        "fn": 76
+      },
+      "DATE_TIME": {
+        "precision": 1.0,
+        "recall": 0.5371621621621622,
+        "f1": 0.6989010989010989,
+        "tp": 159,
+        "fp": 0,
+        "fn": 137
+      },
+      "PERSON": {
+        "precision": 0.9025157232704403,
+        "recall": 0.6768867924528302,
+        "f1": 0.7735849056603774,
+        "tp": 287,
+        "fp": 31,
+        "fn": 137
+      },
+      "ORGANIZATION": {
+        "precision": 0.8865979381443299,
+        "recall": 0.441025641025641,
+        "f1": 0.5890410958904109,
+        "tp": 86,
+        "fp": 11,
+        "fn": 109
+      },
+      "BANK_ACCOUNT": {
+        "precision": 1.0,
+        "recall": 0.6190476190476191,
+        "f1": 0.7647058823529412,
+        "tp": 26,
+        "fp": 0,
+        "fn": 16
+      },
+      "LOCATION": {
+        "precision": 0.9972027972027973,
+        "recall": 0.9344692005242464,
+        "f1": 0.9648173207036536,
+        "tp": 713,
+        "fp": 2,
+        "fn": 50
+      },
+      "EMAIL_ADDRESS": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "tp": 34,
+        "fp": 0,
+        "fn": 0
+      },
+      "PHONE_NUMBER": {
+        "precision": 0.9607843137254902,
+        "recall": 1.0,
+        "f1": 0.98,
+        "tp": 49,
+        "fp": 2,
+        "fn": 0
+      }
+    }
+  },
+  "underthesea_regex_recall": {
+    "run_id": "20260616T030100Z",
+    "pipeline": "underthesea_regex_recall",
+    "dataset": "nguyenlamtung/pii-masking-95k-preencoded",
+    "rows": 500,
+    "split": "validation",
+    "output_dir": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_regex_recall/20260616T030100Z",
+    "metrics_path": "/home/tungnguyen/Work/vsf/output/evaluations/underthesea_regex_recall/20260616T030100Z/metrics.json",
+    "log_path": null,
+    "overall": {
+      "precision": 0.967948717948718,
+      "recall": 0.8839024390243903,
+      "f1": 0.9240183579806222,
+      "tp": 1812,
+      "fp": 60,
+      "fn": 238
+    },
+    "per_entity": {
+      "ID": {
+        "precision": 1.0,
+        "recall": 0.9271255060728745,
+        "f1": 0.9621848739495799,
+        "tp": 229,
+        "fp": 0,
+        "fn": 18
+      },
+      "DATE_TIME": {
+        "precision": 1.0,
+        "recall": 0.8885135135135135,
+        "f1": 0.9409660107334525,
+        "tp": 263,
+        "fp": 0,
+        "fn": 33
+      },
+      "PERSON": {
+        "precision": 0.8892128279883382,
+        "recall": 0.7193396226415094,
+        "f1": 0.7953063885267275,
+        "tp": 305,
+        "fp": 38,
+        "fn": 119
+      },
+      "ORGANIZATION": {
+        "precision": 0.8957055214723927,
+        "recall": 0.7487179487179487,
+        "f1": 0.8156424581005586,
+        "tp": 146,
+        "fp": 17,
+        "fn": 49
+      },
+      "BANK_ACCOUNT": {
+        "precision": 1.0,
+        "recall": 0.9761904761904762,
+        "f1": 0.9879518072289156,
+        "tp": 41,
+        "fp": 0,
+        "fn": 1
+      },
+      "LOCATION": {
+        "precision": 0.9959893048128342,
+        "recall": 0.9764089121887287,
+        "f1": 0.986101919258769,
+        "tp": 745,
+        "fp": 3,
+        "fn": 18
+      },
+      "EMAIL_ADDRESS": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "tp": 34,
+        "fp": 0,
+        "fn": 0
+      },
+      "PHONE_NUMBER": {
+        "precision": 0.9607843137254902,
+        "recall": 1.0,
+        "f1": 0.98,
+        "tp": 49,
+        "fp": 2,
+        "fn": 0
+      }
+    }
+  }
+}

@@ -49,10 +49,11 @@ Class definitions are intentionally one-class-per-file. Top-level modules such
 as `RuleBasedDetector.py`, `Datasets.py`, `Evaluation.py`, and
 `DecisionJsonlLogger.py` are compatibility shims only.
 
-Main class:
+Main detector classes:
 
 ```python
 RuleBasedPromptInjectionDetector
+CharNgramPromptInjectionDetector
 ```
 
 Result object:
@@ -77,7 +78,11 @@ The detector uses explicit regex rules with weights. Default thresholds:
 | score >= 0.75 | `block` |
 
 The interface is intentionally narrow so a later model-based classifier can
-replace the rule engine without changing callers.
+replace the rule engine without changing callers. Evaluation now supports
+explicit detector selection:
+
+- `rule_based_prompt_injection`
+- `char_ngram_prompt_injection`
 
 ## Demo
 
@@ -105,7 +110,19 @@ Run the local Vietnamese seed benchmark:
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
   --dataset local_vietnamese_seed \
+  --detector rule_based_prompt_injection \
   --run-id prompt-injection-local-seed
+```
+
+Run the experimental trainable baseline with leave-one-out evaluation on the
+same dataset:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate_prompt_injection.py \
+  --dataset local_vietnamese_seed \
+  --detector char_ngram_prompt_injection \
+  --train-strategy leave_one_out \
+  --run-id prompt-injection-char-ngram-loo
 ```
 
 Run a small sample from the HuggingFace multilingual benchmark:
@@ -218,14 +235,37 @@ When expanding `data/prompt_injection/vietnamese_seed.jsonl`, prioritize:
   inside Vietnamese attacks, such as `system prompt`, `tool`, `token`, and
   `api key`, and mixed Vietnamese/English attacks in the local seed.
 - There is no model-based classifier yet.
+- There is now only a very small experimental model baseline: a local
+  character-ngram Naive Bayes detector. It is useful for plumbing and quick
+  comparisons, not as the intended final detector.
 - The detector currently scores a single user input, not a full conversation
   with retrieved context and tool state.
+
+## Current Comparison
+
+On the current repo-owned Vietnamese seed set, the rule detector still wins:
+
+- `rule_based_prompt_injection` on `local_vietnamese_seed`: accuracy/precision/recall/F1 = `1.0`
+- `char_ngram_prompt_injection` with leave-one-out on `local_vietnamese_seed`:
+  accuracy `0.707692`, precision `0.8125`, recall `0.666667`, F1 `0.732394`
+- `char_ngram_prompt_injection` with leave-one-out on
+  `local_vietnamese_mentor_seed`: accuracy `0.28`, recall `0.133333`
+
+That does not mean regex is sufficient in production. It means the current
+seed datasets are small and heavily aligned with the hand-written rules, so a
+real learned detector needs a broader Vietnamese training set before it can be
+judged fairly.
 
 ## Next Steps
 
 1. Run the decision-log miner after each seed or rule change and use the mined
    FP/FN/action-mismatch groups to choose the next examples.
-2. Compare this rule baseline against a cheap local or API classifier on a small
-   sample.
-3. Integrate the detector as an input guardrail before tool calls and RAG
+2. Build a larger Vietnamese prompt-injection dataset with explicit train/dev/test
+   splits instead of only smoke/regression seeds.
+3. Compare the rule baseline against a stronger Vietnamese classifier
+   (for example PhoBERT/viBERT fine-tuning or a cheap embedding+linear model)
+   on that held-out split.
+4. Keep topic filtering separate from prompt injection unless both tasks share a
+   labeled taxonomy and evaluation plan.
+5. Integrate the chosen detector as an input guardrail before tool calls and RAG
    retrieval.

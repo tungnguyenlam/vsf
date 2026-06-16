@@ -2,7 +2,7 @@ import uuid
 from pathlib import Path
 
 from src.pipeline.PromptInjection.Datasets import get_prompt_injection_dataset
-from src.pipeline.PromptInjection.Detectors import RuleBasedPromptInjectionDetector
+from src.pipeline.PromptInjection.Detectors import get_prompt_injection_detector
 from src.pipeline.PromptInjection.Evaluation.PromptInjectionEvaluationConfig import (
     PromptInjectionEvaluationConfig,
 )
@@ -14,8 +14,6 @@ DEFAULT_DECISION_LOG_DIR = PROJECT_ROOT / "output" / "prompt_injection"
 
 
 class PromptInjectionEvaluationRunner:
-    detector_name = "rule_based_prompt_injection"
-
     def __init__(self, config: PromptInjectionEvaluationConfig):
         self.config = config
 
@@ -26,14 +24,14 @@ class PromptInjectionEvaluationRunner:
             limit=self.config.limit,
             random_state=self.config.random_state,
         )
-        detector = RuleBasedPromptInjectionDetector()
         run_id = self.config.run_id or f"prompt-injection-{uuid.uuid4().hex[:8]}"
         logger = self._build_logger(run_id)
 
         decisions = []
         counts = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
         action_counts = {"correct": 0, "total": 0}
-        for example in examples:
+        for index, example in enumerate(examples):
+            detector = self._build_detector(examples, holdout_index=index)
             result = detector.predict(example.text)
             self._update_counts(counts, predicted=result.is_injection, actual=example.is_injection)
             self._update_action_counts(action_counts, example=example, result=result)
@@ -41,14 +39,14 @@ class PromptInjectionEvaluationRunner:
             if logger is not None:
                 logger.log_decision(
                     run_id=run_id,
-                    detector_name=self.detector_name,
+                    detector_name=self.config.detector,
                     example=example,
                     result=result,
                     include_source_text=self.config.include_source_text,
                 )
 
         return {
-            "detector": self.detector_name,
+            "detector": self.config.detector,
             "dataset": self.config.dataset,
             "split": self.config.split,
             "rows": len(examples),
@@ -60,6 +58,25 @@ class PromptInjectionEvaluationRunner:
             "action_counts": action_counts,
             "decisions": decisions,
         }
+
+    def _build_detector(self, examples, *, holdout_index: int):
+        detector = get_prompt_injection_detector(self.config.detector)
+        if self.config.train_strategy == "none":
+            return detector
+        if self.config.train_strategy != "leave_one_out":
+            raise ValueError(
+                f"Unsupported train strategy {self.config.train_strategy!r}. "
+                "Use 'none' or 'leave_one_out'."
+            )
+        if not hasattr(detector, "fit"):
+            raise ValueError(
+                f"Detector {self.config.detector!r} does not support training."
+            )
+        train_examples = [
+            example for index, example in enumerate(examples) if index != holdout_index
+        ]
+        detector.fit(train_examples)
+        return detector
 
     def _build_logger(self, run_id: str):
         if self.config.no_log:

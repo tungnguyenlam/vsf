@@ -4,6 +4,7 @@ from presidio_analyzer import AnalysisExplanation, RecognizerResult
 
 import src.pipeline.BasePipeline as base_pipeline
 from src.pipeline.BasePipeline import PIIPipeline
+from src.pipeline.Resolvers import DeterministicResolver
 
 
 class FakeAnalyzer:
@@ -43,6 +44,32 @@ class FakeAnalyzer:
                 recognition_metadata=metadata,
             )
         ]
+
+
+class FakeUndertheseaPersonAnalyzer:
+    def __init__(self):
+        self.calls = []
+
+    def analyze(self, **kwargs):
+        self.calls.append(kwargs)
+        text = kwargs["text"]
+        start = text.index("Bạch Mai")
+        explanation = AnalysisExplanation(
+            recognizer="DeepLearning_UndertheseaNER",
+            original_score=0.8,
+            textual_explanation="Detected by UndertheseaNER",
+        )
+        result = RecognizerResult(
+            entity_type="PERSON",
+            start=start,
+            end=start + len("Bạch Mai"),
+            score=0.8,
+            analysis_explanation=explanation,
+        )
+        result.recognition_metadata = {
+            RecognizerResult.RECOGNIZER_NAME_KEY: "DeepLearning_UndertheseaNER",
+        }
+        return [result]
 
 
 def read_jsonl(path):
@@ -95,7 +122,7 @@ def test_single_input_writes_jsonl_record(tmp_path):
     records = read_jsonl(log_path)
     assert len(records) == 1
     record = records[0]
-    assert record["record_version"] == 1
+    assert record["record_version"] == 2
     assert record["run_id"] == "run-001"
     assert record["pipeline_name"] == "regex_only"
     assert record["input_id"] == "row-001"
@@ -104,6 +131,7 @@ def test_single_input_writes_jsonl_record(tmp_path):
     assert record["source_text"] is None
     assert record["ground_truth"] == [{"entity_type": "EMAIL_ADDRESS"}]
     assert record["anonymized_text"] == "email <EMAIL_ADDRESS>"
+    assert record["resolver_audit"] is None
 
     result = record["results"][0]
     assert result["entity_type"] == "EMAIL_ADDRESS"
@@ -120,6 +148,11 @@ def test_single_input_writes_jsonl_record(tmp_path):
     readable_records = json.loads(readable_path.read_text(encoding="utf-8"))
     assert readable_records == records
     assert "\n  {" in readable_path.read_text(encoding="utf-8")
+
+    audit_text = log_path.with_suffix(".audit.md").read_text(encoding="utf-8")
+    assert "# PII Prediction Audit" in audit_text
+    assert "Final Spans" in audit_text
+    assert "user@example.com" in audit_text
 
 
 def test_batch_input_writes_one_record_per_input(tmp_path):
@@ -197,3 +230,49 @@ def test_multiple_pipelines_append_to_shared_file(tmp_path):
         "regex_only",
         "full_hybrid_pipeline",
     ]
+
+
+def test_resolver_audit_logs_dropped_candidate_and_markdown(tmp_path):
+    log_path = tmp_path / "predictions.jsonl"
+    pipeline = PIIPipeline(
+        analyzer=FakeUndertheseaPersonAnalyzer(),
+        resolver=DeterministicResolver(),
+        prediction_log_path=log_path,
+        include_source_text=True,
+        run_id="run-resolver-audit",
+    )
+
+    results = pipeline.predict(
+        "Bệnh viện Bạch Mai tiếp nhận hồ sơ.",
+        language="vi",
+        input_ids="row-org-001",
+    )
+
+    assert results == []
+    record = read_jsonl(log_path)[0]
+    audit = record["resolver_audit"]
+    assert audit["resolver"] == "DeterministicResolver"
+    assert audit["input_count"] == 1
+    assert audit["output_count"] == 0
+    assert audit["decisions"] == [
+        {
+            "candidate_id": 0,
+            "action": "drop",
+            "reason": "left context indicates an organization",
+            "entity_type": "PERSON",
+            "start": 10,
+            "end": 18,
+            "text": "Bạch Mai",
+            "score": 0.8,
+            "recognizer": "DeepLearning_UndertheseaNER",
+            "left_context": "Bệnh viện ",
+            "right_context": " tiếp nhận hồ sơ.",
+        }
+    ]
+
+    audit_text = log_path.with_suffix(".audit.md").read_text(encoding="utf-8")
+    assert "row-org-001" in audit_text
+    assert "Resolver Decisions" in audit_text
+    assert "drop" in audit_text
+    assert "left context indicates an organization" in audit_text
+    assert "Bạch Mai" in audit_text
