@@ -264,3 +264,22 @@ python scripts/safety_v0/validate_safety_v0.py \
 The sample converter logic is unit-tested in `tests/test_convert_webpii.py`.
 The WebPII OCR/source alignment logic is unit-tested in
 `tests/test_run_ocr_webpii_alignment.py` without requiring PaddleOCR.
+
+## OCR engine note (PaddlePaddle / oneDNN)
+
+PaddleOCR is the only registered OCR adapter. On the current CPU-only AMD
+machine, `paddlepaddle 3.3.1`'s PIR executor crashes when oneDNN (MKLDNN) is on
+(`NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support`), so
+`PaddleOcrAdapter` defaults to `enable_mkldnn=False`. This is a config knob, not
+a hardcode: pass `enable_mkldnn=True` (via `get_ocr_adapter(... enable_mkldnn=True)`)
+on builds where oneDNN works.
+
+There is **no GPU/NPU path on this hardware**: the iGPU is `gfx1103` (Radeon
+780M), which ROCm does not support and for which no `paddlepaddle-rocm` wheel
+exists; the XDNA NPU has no PaddlePaddle backend. The faster CPU route is to
+re-enable oneDNN on a paddle build where it does not crash (e.g.
+`paddlepaddle==3.0.0`).
+
+The full 100-row sample has been run end to end: `ocr.jsonl` (100/100 rows with
+OCR text + word boxes) and `redacted.jsonl` (90/100 rows with aligned source PII
+spans + redacted images), both validating 100/100.

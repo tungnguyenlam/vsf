@@ -112,9 +112,19 @@ class PaddleOcrAdapter(OcrAdapter):
 
     name = "paddleocr"
 
-    def __init__(self, lang: str = "vi", use_angle_cls: bool = True, **engine_kwargs: Any):
+    def __init__(
+        self,
+        lang: str = "vi",
+        use_angle_cls: bool = True,
+        enable_mkldnn: bool = False,
+        **engine_kwargs: Any,
+    ):
         self.lang = lang
         self.use_angle_cls = use_angle_cls
+        # oneDNN (MKLDNN) is off by default: paddlepaddle 3.3.x crashes in its
+        # PIR executor (ConvertPirAttribute2RuntimeAttribute) when oneDNN is on
+        # for these models on CPU. Overridable for builds where it works.
+        self.enable_mkldnn = enable_mkldnn
         self.engine_kwargs = engine_kwargs
         self._engine = None
 
@@ -131,6 +141,10 @@ class PaddleOcrAdapter(OcrAdapter):
             sig = inspect.signature(PaddleOCR)
             params = sig.parameters
             kwargs = {"lang": self.lang, **self.engine_kwargs}
+            if "enable_mkldnn" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            ):
+                kwargs.setdefault("enable_mkldnn", self.enable_mkldnn)
             if "use_doc_orientation_classify" in params:
                 kwargs.setdefault("use_doc_orientation_classify", False)
                 kwargs.setdefault("use_doc_unwarping", False)
