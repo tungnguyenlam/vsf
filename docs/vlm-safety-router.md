@@ -283,3 +283,52 @@ Rows can supervise different heads:
 
 Never convert unknown labels to `false`.
 
+## Implementation Status
+
+The generative-JSON router (the first path above) is built behind a narrow
+interface in `src/pipeline/Router/`:
+
+- `router.py` — `SafetyRouter` interface; `GeminiVlmRouter` default backend
+  (Gemini Flash vision over an OpenAI-compatible Chat Completions endpoint),
+  selected by name via `get_router` (config flip). `model`/`base_url` swap the
+  engine; the `openai` client and API key are resolved lazily, so importing the
+  module and the test suite need neither. Any call failure (auth, network, SDK)
+  routes to `unsure`, audited in `RouterResult.error`.
+- `input.py` — `build_router_input(row)` is the "merge before model" step: it
+  maps a canonical row to the compact input contract (prefers the redacted
+  image, sanitized OCR/text, span/redaction summaries, modality flags).
+- `output.py` — `parse_router_output` validates the flat JSON; missing/invalid
+  `action` or non-boolean risk flags route to `unsure` (`valid=False`) while
+  keeping any present boolean flags for audit. Unknown flags stay `None`, never
+  coerced to `false`. `RouterResult.to_labels()` yields the 8-field label dict.
+- Config (single source of truth, `router.py`): `DEFAULT_MODEL =
+  "gemini-flash-latest"`, `DEFAULT_BASE_URL` = Gemini's OpenAI-compatible
+  endpoint, key from `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
+
+The router is fired EXPLICITLY from the webdemo "Run router" button
+(`POST /api/review/run-router`) — never on load — because it spends paid budget.
+It returns the decision for inspection and never writes labels; the reviewer
+chooses whether to copy it into the form.
+
+### Batch stage + fallback queue
+
+`scripts/safety_v0/run_router.py` routes a JSONL of canonical rows (default
+`redacted/<slug>/redacted.jsonl`) and writes two artifacts:
+
+- `review/api_labels/<slug>.jsonl` — one record per row with the router decision
+  as an API-label layer (`label_source="api"`; unknown flags stay `None`).
+- `review/queue/<slug>.jsonl` — the fallback queue: rows whose action is
+  `unsure` or whose output failed validation, with a reason.
+
+Cost discipline (CLAUDE.md): the CLI refuses to run without `--limit N` (or an
+explicit `--all`), since it spends one paid model call per row.
+
+The Annotate tab applies the API-label layer as the **base** layer beneath any
+human override: routed rows show the router's labels with `label_source="api"`
+and `review.status="needs_review"`, and a human edit saved on top wins and
+becomes `label_source="human"`. This closes the loop preprocessing -> router ->
+human review.
+
+The classifier-head approach and a second-pass/auto fallback (beyond queuing for
+human review) are not built yet.
+

@@ -19,6 +19,7 @@
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  html { overflow-x: hidden; }  /* contain the full-bleed review's 50vw math */
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -83,6 +84,20 @@
   .badge.flag  { background: rgba(154,103,0,.12); color: var(--amber); border: 1px solid rgba(154,103,0,.35); }
   .badge.block { background: rgba(207,34,46,.10); color: var(--red); border: 1px solid rgba(207,34,46,.35); }
   .badge.sm { font-size: 11px; padding: 3px 9px; }
+  /* Label provenance: which layer produced a label. */
+  .prov {
+    display: inline-block; font-family: var(--mono); font-size: 10.5px;
+    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border);
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .prov-source { background: rgba(9,105,218,.10); color: var(--accent); border-color: rgba(9,105,218,.35); }
+  .prov-weak   { background: rgba(154,103,0,.12); color: var(--amber);  border-color: rgba(154,103,0,.35); }
+  .prov-human  { background: rgba(26,127,55,.12); color: var(--green);  border-color: rgba(26,127,55,.35); }
+  .prov-none   { background: var(--panel-2); color: var(--muted); }
+  /* Tint a label row's left edge by the layer it came from. */
+  tr.row-source td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  tr.row-weak   td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
+  tr.row-human  td:first-child { box-shadow: inset 3px 0 0 var(--green); }
   .score { font-family: var(--mono); color: var(--muted); font-size: 13px; }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
   .tag {
@@ -109,6 +124,11 @@
   .muted { color: var(--muted); font-size: 13px; }
   .sub { font-size: 12px; color: var(--muted); margin: 14px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
   .empty { color: var(--muted); font-style: italic; font-size: 13px; }
+  .notice {
+    border: 1px solid rgba(154,103,0,.35); background: rgba(154,103,0,.08);
+    border-radius: 8px; padding: 9px 11px; margin: 10px 0;
+    color: var(--amber); font-size: 12.5px;
+  }
   .spinner {
     display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
     border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
@@ -124,6 +144,82 @@
   details.log-row summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   details.log-row summary::-webkit-details-marker { display: none; }
   .log-snippet { font-family: var(--mono); font-size: 12.5px; color: var(--text); flex: 1; min-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ---- Annotate: full-bleed top-down stepper + sticky sidebar ---- */
+  /* Break out of the centered .wrap so the review uses the whole viewport. */
+  .full-bleed {
+    margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+    padding-left: 28px; padding-right: 28px;
+  }
+  .annotate-layout { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 22px; align-items: start; }
+  @media (max-width: 980px) { .annotate-layout { grid-template-columns: 1fr; } }
+  .annotate-side { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .annotate-steps { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  /* Long mono text stays readable rather than stretching edge-to-edge. */
+  .step .rendered { max-width: 1100px; }
+  /* Sidebar: override the global 200px-min select so the risk table fits the
+     420px card instead of spilling past its border. */
+  .annotate-side select { min-width: 0; width: 100%; }
+  .annotate-side table { table-layout: fixed; }
+  .annotate-side th, .annotate-side td { padding: 6px 5px; overflow: hidden; }
+  .annotate-side td:first-child { white-space: nowrap; text-overflow: ellipsis; }
+  .risk-table th:nth-child(1), .risk-table td:nth-child(1) { width: 36%; }
+  .risk-table th:nth-child(2), .risk-table td:nth-child(2) { width: 40%; }
+  .risk-table th:nth-child(3), .risk-table td:nth-child(3) { width: 17%; }
+  .risk-table th:nth-child(4), .risk-table td:nth-child(4) { width: 7%; }
+  /* index badge on an image PII box, cross-referenced in the boxes table */
+  .box-rect .box-tag {
+    position: absolute; top: 0; left: 0; background: var(--green); color: #fff;
+    font-size: 9px; line-height: 1; padding: 1px 3px; border-radius: 0 0 3px 0; font-weight: 700;
+  }
+  .step {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; box-shadow: 0 1px 2px rgba(31,35,40,.04); position: relative;
+  }
+  .step > h3 {
+    margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 9px;
+  }
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent);
+    color: #fff; font-size: 12px; font-weight: 700; flex: none;
+  }
+  .step-hint { font-size: 11.5px; color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .annotatable { cursor: text; }
+  .annotatable mark[data-lbl]::after {
+    content: attr(data-lbl); font-size: 9px; vertical-align: super;
+    opacity: .8; margin-left: 2px; font-weight: 700; letter-spacing: .03em;
+  }
+  mark.human-span { outline: 2px dashed var(--green); outline-offset: 1px; }
+  .span-del {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: 13px; padding: 0 4px; line-height: 1;
+  }
+  .span-del:hover { color: var(--red); }
+  tr.human-row td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+  /* image annotation overlay */
+  /* Cap the original-image box by width AND viewport height so a tall page
+     screenshot stays usable; the box-layer (inset:0) tracks the displayed image,
+     so percentage-positioned PII boxes stay aligned at any size. */
+  .imgwrap { position: relative; display: inline-block; max-width: min(100%, 900px); touch-action: none; border: 1px solid var(--border); border-radius: 8px; }
+  .imgwrap img { display: block; max-width: 100%; max-height: 78vh; width: auto; height: auto; }
+  .imgwrap.drawing { cursor: crosshair; }
+  .box-layer { position: absolute; inset: 0; }
+  .box-rect {
+    position: absolute; border: 2px solid var(--green); background: rgba(26,127,55,.14);
+    border-radius: 3px; font-size: 9px; color: var(--green); font-weight: 700;
+  }
+  .box-rect .box-del {
+    position: absolute; top: -10px; right: -10px; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--red); color: #fff; border: none; cursor: pointer;
+    font-size: 11px; line-height: 18px; padding: 0;
+  }
+  .box-draft { border-style: dashed; }
+  .annot-pop {
+    position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(31,35,40,.18);
+    width: 240px;
+  }
+  .annot-pop-head { font-size: 12px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -132,6 +228,7 @@
   <p>Vietnamese input guardrail: prompt-injection screening &rarr; PII detection &amp; anonymization.</p>
   <nav>
     <button id="tab-analyze" class="active" onclick="showTab('analyze')">Analyze</button>
+    <button id="tab-review" onclick="showTab('review')">Annotate</button>
     <button id="tab-log" onclick="showTab('log')">Log</button>
   </nav>
 </header>
@@ -183,6 +280,44 @@
     </div>
   </section>
 
+  <!-- ===================== REVIEW / ANNOTATE VIEW ===================== -->
+  <section id="view-review" class="hidden full-bleed">
+    <div class="card" style="margin-bottom:16px">
+      <div class="controls" style="margin:0">
+        <label class="field">Dataset file
+          <select id="review-file" style="min-width:380px"></select>
+        </label>
+        <div style="align-self:flex-end"><button class="ghost" onclick="loadReviewFiles()">Files</button></div>
+        <div style="align-self:flex-end; margin-left:auto" class="muted" id="review-stats"></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">Canonical <code>safety_v0</code> rows. Work top-down through the steps on the left; set the row verdict and save on the right. Select text or drag on the image to add a missed annotation. Edits save to the per-source <code>human_overrides</code> JSONL.</p>
+    </div>
+
+    <div class="annotate-layout">
+      <div class="annotate-steps" id="review-steps">
+        <p class="empty">Pick a dataset file to begin.</p>
+      </div>
+      <aside class="annotate-side" id="review-side">
+        <p class="empty">No row loaded.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- floating popover for adding a span / box annotation -->
+  <div id="annot-pop" class="annot-pop hidden">
+    <div class="annot-pop-head" id="annot-pop-head">Add annotation</div>
+    <div class="controls" style="margin:8px 0; gap:8px">
+      <label class="field" style="flex-direction:row; align-items:center; gap:5px"><input type="radio" name="annot-kind" value="pii" checked onchange="annotKindChanged()"> PII</label>
+      <label class="field" style="flex-direction:row; align-items:center; gap:5px"><input type="radio" name="annot-kind" value="injection" onchange="annotKindChanged()"> injection</label>
+    </div>
+    <select id="annot-type" style="width:100%; min-width:0"></select>
+    <div class="controls" style="margin:10px 0 0; gap:8px">
+      <button class="primary" id="annot-add" style="padding:7px 14px">Add</button>
+      <button class="ghost" id="annot-cancel" style="padding:7px 14px">Cancel</button>
+    </div>
+  </div>
+
+
   <!-- ===================== LOG VIEW ===================== -->
   <section id="view-log" class="hidden">
     <div class="card">
@@ -227,11 +362,12 @@ function badgeClassFor(action) {
 }
 
 function showTab(name) {
-  $("view-analyze").classList.toggle("hidden", name !== "analyze");
-  $("view-log").classList.toggle("hidden", name !== "log");
-  $("tab-analyze").classList.toggle("active", name === "analyze");
-  $("tab-log").classList.toggle("active", name === "log");
+  for (const t of ["analyze", "review", "log"]) {
+    $("view-" + t).classList.toggle("hidden", name !== t);
+    $("tab-" + t).classList.toggle("active", name === t);
+  }
   if (name === "log") loadLog();
+  if (name === "review") initReview();
 }
 
 function highlight(text, spans) {
@@ -381,6 +517,607 @@ function loadExamples() {
 
 $("run").onclick = analyze;
 loadExamples();
+
+/* ===================== REVIEW / ANNOTATE ===================== */
+const RISK_FIELDS = ["pii_visible", "prompt_injection", "sexual", "violence", "blood_gore", "political", "religious"];
+const ACTIONS = ["safe", "reject", "unsure"];
+// Mirrors src/pipeline/Verifiers/LLMVerifier.ENTITY_TYPES (canonical enum).
+const ENTITY_TYPES = ["PERSON","LOCATION","ORGANIZATION","PHONE_NUMBER","EMAIL_ADDRESS",
+  "BANK_ACCOUNT","ID","DATE_TIME","CREDIT_CARD","CRYPTO","IP_ADDRESS","URL","CREDENTIAL",
+  "FINANCIAL","MEDICAL","VEHICLE","USERNAME","NRP","OCCUPATION","EDUCATION","PROPERTY","MISC"];
+const ATTACK_TYPES = ["instruction_override","system_prompt_leak","role_play","tool_abuse",
+  "data_exfiltration","obfuscation","other"];
+// reviewState.edits: per-input_id pending span/box edits, sent on Save.
+let reviewState = { file: null, rows: [], index: 0, edits: {} };
+let reviewInitialized = false;
+let pendingCounter = 0;
+let annotCtx = null;  // current popover context
+
+function initReview() {
+  if (reviewInitialized) return;
+  reviewInitialized = true;
+  // Delegated text-selection handler over the steps column.
+  $("review-steps").addEventListener("mouseup", handleStepsMouseup);
+  $("annot-cancel").onclick = closeAnnotPop;
+  $("annot-add").onclick = confirmAnnot;
+  loadReviewFiles();
+}
+
+function triStr(v) { return v === true ? "true" : (v === false ? "false" : "null"); }
+
+function visibleRows() {
+  if (reviewState._onlyUnreviewed) {
+    return reviewState.rows.filter((r) => (r.review || {}).status !== "human_reviewed");
+  }
+  return reviewState.rows;
+}
+
+function onlyUnreviewedChanged() {
+  reviewState._onlyUnreviewed = $("review-only-unreviewed").checked;
+  reviewState.index = 0;
+  renderReview();
+}
+
+async function loadReviewFiles() {
+  const sel = $("review-file");
+  try {
+    const res = await fetch("/api/review/files");
+    const data = await res.json();
+    const files = data.files || [];
+    sel.innerHTML = files.length
+      ? files.map((f) => `<option value="${escapeHtml(f.path)}">${escapeHtml(f.label)}</option>`).join("")
+      : '<option value="">(no files — run a converter or the demo generator)</option>';
+    sel.onchange = () => loadReviewRows(sel.value);
+    if (files.length) loadReviewRows(files[0].path);
+  } catch (e) {
+    sel.innerHTML = `<option value="">error: ${escapeHtml(e.message)}</option>`;
+  }
+}
+
+async function loadReviewRows(path, keepIndex) {
+  if (!path) return;
+  $("review-steps").innerHTML = '<p class="muted"><span class="spinner"></span> loading…</p>';
+  try {
+    const res = await fetch("/api/review/rows?file=" + encodeURIComponent(path));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load");
+    const index = keepIndex ? (reviewState.index || 0) : 0;
+    reviewState = { file: path, rows: data.rows || [], index, edits: {} };
+    const s = data.stats || {};
+    const routedTxt = s.routed ? ` · ${s.routed} routed` : "";
+    $("review-stats").textContent = `${s.reviewed || 0}/${s.total || 0} reviewed${routedTxt} · overrides → ${s.override_path || ""}`;
+    renderReview();
+  } catch (e) {
+    $("review-steps").innerHTML = `<p class="empty" style="color:var(--red)">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// Re-fetch the current file after a save so server-merged spans/labels show,
+// keeping the reviewer on the same row.
+function reloadCurrentFile() { return loadReviewRows(reviewState.file, true); }
+
+function reviewNav(delta) {
+  const rows = visibleRows();
+  if (!rows.length) return;
+  reviewState.index = (reviewState.index + delta + rows.length) % rows.length;
+  renderReview();
+}
+
+// ---- per-row pending span/box edits (sent on Save) ----
+function rowEdits(row) {
+  if (!reviewState.edits) reviewState.edits = {};
+  if (!reviewState.edits[row.input_id]) {
+    reviewState.edits[row.input_id] = {
+      pii_spans: { added: [], deleted: [] },
+      prompt_injection_spans: { added: [], deleted: [] },
+      boxes: { added: [], deleted: [] },
+    };
+  }
+  return reviewState.edits[row.input_id];
+}
+function hasEdits(row) {
+  const e = reviewState.edits && reviewState.edits[row.input_id];
+  return !!e && ["pii_spans", "prompt_injection_spans", "boxes"].some(
+    (k) => e[k].added.length || e[k].deleted.length);
+}
+
+// Deterministic re-anonymization mirroring the backend: replace each PII span
+// right-to-left so a manually added span shows up in the sanitized preview.
+function recomputeSanitized(row) {
+  const c = row.content || {};
+  if (!c.input_text) return;
+  const spans = (row.detections.pii_spans || []).slice().sort((a, b) => b.start - a.start);
+  let out = c.input_text;
+  for (const s of spans) {
+    if (s.start >= 0 && s.start < s.end && s.end <= out.length)
+      out = out.slice(0, s.start) + `<${s.entity_type || "MISC"}>` + out.slice(s.end);
+  }
+  c.sanitized_text = out;
+}
+
+function addTextSpan(row, collection, typeField, type, start, end, text) {
+  rowEdits(row)[collection].added.push({ [typeField]: type, start, end, text });
+  row.detections[collection] = row.detections[collection] || [];
+  row.detections[collection].push({
+    span_id: `pending_${collection}_${++pendingCounter}`,
+    [typeField]: type, start, end, text, score: 1.0, detector: "human", box_ids: [],
+  });
+  if (collection === "pii_spans") recomputeSanitized(row);
+  renderReview();
+}
+
+function deleteSpan(row, collection, typeField, span) {
+  const det = row.detections[collection] || [];
+  const idx = det.indexOf(span);
+  if (idx >= 0) det.splice(idx, 1);
+  const e = rowEdits(row);
+  if (String(span.span_id || "").startsWith("pending_")) {
+    const k = JSON.stringify([span.start, span.end, span[typeField] || ""]);
+    e[collection].added = e[collection].added.filter(
+      (a) => JSON.stringify([a.start, a.end, a[typeField] || ""]) !== k);
+  } else {
+    e[collection].deleted.push([span.start, span.end, span[typeField] || ""]);
+  }
+  if (collection === "pii_spans") recomputeSanitized(row);
+  renderReview();
+}
+
+function addBox(row, type, box) {
+  rowEdits(row).boxes.added.push({ entity_type: type, box, text: "" });
+  const g = row.geometry || (row.geometry = {});
+  g.source_pii_boxes = g.source_pii_boxes || [];
+  g.source_pii_boxes.push({ box_id: `pending_box_${++pendingCounter}`, entity_type: type, text: "", box, detector: "human" });
+  renderReview();
+}
+
+function deleteBox(row, boxObj) {
+  const arr = (row.geometry || {}).source_pii_boxes || [];
+  const idx = arr.indexOf(boxObj);
+  if (idx >= 0) arr.splice(idx, 1);
+  const e = rowEdits(row);
+  if (String(boxObj.box_id || "").startsWith("pending_")) {
+    e.boxes.added = e.boxes.added.filter((a) =>
+      !(a.entity_type === boxObj.entity_type && JSON.stringify(a.box) === JSON.stringify(boxObj.box)));
+  } else {
+    e.boxes.deleted.push(boxObj.box_id);
+  }
+  renderReview();
+}
+
+// ---- rendering: left = top-down steps ----
+function renderReview() {
+  const rows = visibleRows();
+  if (!rows.length) {
+    $("review-steps").innerHTML = '<p class="empty">No rows match the current filter.</p>';
+    $("review-side").innerHTML = '<p class="empty">No row loaded.</p>';
+    return;
+  }
+  if (reviewState.index >= rows.length) reviewState.index = 0;
+  const row = rows[reviewState.index];
+  renderReviewSteps(row);
+  renderReviewSide(row);
+}
+
+function stepCard(num, title, hint, body) {
+  return `<div class="step"><h3><span class="step-num">${num}</span>${escapeHtml(title)}` +
+    (hint ? `<span class="step-hint">${escapeHtml(hint)}</span>` : "") + `</h3>${body}</div>`;
+}
+
+// Selectable highlight: type label is rendered via CSS ::after (data-lbl), so it
+// is NOT part of textContent and selection offsets map cleanly to the source text.
+function highlightClean(text, spans) {
+  if (!spans || !spans.length) return escapeHtml(text);
+  const sorted = [...spans].filter((s) => Number.isInteger(s.start)).sort((a, b) => a.start - b.start);
+  let out = "", cursor = 0;
+  for (const s of sorted) {
+    if (s.start < cursor) continue;
+    out += escapeHtml(text.slice(cursor, s.start));
+    const human = s.detector === "human";
+    const lbl = (s.entity_type || s.attack_type || "") + (human ? " ·you" : "");
+    out += `<mark class="${human ? 'human-span' : ''}" data-lbl="${escapeHtml(lbl)}" ` +
+      `style="background:${colorFor(s.entity_type)}">` + escapeHtml(text.slice(s.start, s.end)) + `</mark>`;
+    cursor = s.end;
+  }
+  out += escapeHtml(text.slice(cursor));
+  return out;
+}
+
+function spanRows(row, collection, typeField) {
+  const spans = row.detections[collection] || [];
+  if (!spans.length) return `<p class="empty">none</p>`;
+  let html = `<table><tr><th>Type</th><th>Text</th><th>Span</th><th>From</th><th></th></tr>`;
+  spans.forEach((s, i) => {
+    const human = s.detector === "human";
+    html += `<tr class="${human ? 'human-row' : ''}"><td><span class="tag">${escapeHtml(s[typeField] || "")}</span></td>` +
+      `<td class="mono">${escapeHtml(s.text || "")}</td><td class="mono">${s.start}–${s.end}</td>` +
+      `<td class="mono">${escapeHtml(s.detector || "")}</td>` +
+      `<td><button class="span-del" title="delete" data-coll="${collection}" data-idx="${i}">×</button></td></tr>`;
+  });
+  return html + `</table>`;
+}
+
+function renderReviewSteps(row) {
+  const c = row.content || {}, d = row.detections || {}, m = row.modality || {}, g = row.geometry || {};
+  d.pii_spans = d.pii_spans || []; d.prompt_injection_spans = d.prompt_injection_spans || [];
+  const steps = [];
+
+  let s1 = `<div class="tags"><span class="tag">${escapeHtml((row.source || {}).name || "")}</span>` +
+    `<span class="tag">image:${!!m.has_image}</span><span class="tag">text:${!!m.has_text}</span>` +
+    `<span class="tag">ocr:${!!m.has_ocr}</span></div>`;
+  if (row.source_labels && Object.keys(row.source_labels).length) {
+    s1 += `<div class="sub">Source labels</div><div class="rendered" style="font-size:12px">${escapeHtml(JSON.stringify(row.source_labels))}</div>`;
+  }
+  steps.push(stepCard(1, "Source & modality", "where this row came from", s1));
+
+  let n = 2;
+  if (m.has_text || c.input_text) {
+    let body = `<div class="rendered annotatable" data-field="input_text">${highlightClean(c.input_text || "", d.pii_spans)}</div>`;
+    if (c.sanitized_text) {
+      body += `<div class="sub">Sanitized (live)</div><div class="rendered">${escapeHtml(c.sanitized_text)}</div>`;
+    }
+    steps.push(stepCard(n++, "Input text", "select text to add a missed PII / injection span", body));
+  }
+
+  steps.push(stepCard(n++, "PII spans", `${d.pii_spans.length} detected`, spanRows(row, "pii_spans", "entity_type")));
+  steps.push(stepCard(n++, "Prompt-injection spans", `${d.prompt_injection_spans.length} detected`, spanRows(row, "prompt_injection_spans", "attack_type")));
+
+  // Image pipeline order: OCR text -> image with detection boxes -> box↔OCR-text
+  // map -> redacted image. You read the extracted text, see where each box sits,
+  // confirm the box→text correspondence, then check the masked result.
+  if (m.has_ocr && c.ocr_text) {
+    const body = `<div class="rendered annotatable" data-field="ocr_text">${highlightClean(c.ocr_text, d.pii_spans)}</div>`;
+    steps.push(stepCard(n++, "OCR text", "select text to add a missed span", body));
+  }
+
+  if (m.has_image && c.original_image_path) {
+    const boxes = g.source_pii_boxes || [];
+
+    // Image with detection bounding boxes (numbered), draggable to add.
+    const imgBody = `<div class="imgwrap">` +
+      `<img src="/api/review/image?path=${encodeURIComponent(c.original_image_path)}" alt="original" ` +
+      `style="display:block; max-width:100%; max-height:78vh; width:auto; height:auto" ` +
+      `onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'empty',textContent:'image not found'}))">` +
+      `<div class="box-layer"></div></div>` +
+      `<p class="muted" style="font-size:11.5px; margin:6px 0 0">${boxes.length} PII box(es) · drag on the image to add one</p>`;
+    steps.push(stepCard(n++, "Image — detection boxes", "drag to box a missed PII region", imgBody));
+
+    // Box id ↔ corresponding OCR text (numbers match the badges on the image).
+    if (boxes.length) {
+      let t = `<table><tr><th>#</th><th>Box id</th><th>Type</th><th>Text</th><th>From</th></tr>`;
+      boxes.forEach((b, i) => {
+        t += `<tr class="${b.detector === 'human' ? 'human-row' : ''}"><td class="mono">${i + 1}</td>` +
+          `<td class="mono">${escapeHtml(b.box_id || "")}</td>` +
+          `<td><span class="tag">${escapeHtml(b.entity_type || "")}</span></td>` +
+          `<td class="mono">${escapeHtml(b.text || "")}</td>` +
+          `<td class="mono">${escapeHtml(b.detector || "source")}</td></tr>`;
+      });
+      steps.push(stepCard(n++, "Boxes ↔ OCR text", "each detection box and the text it covers", t + `</table>`));
+    }
+
+    // Redacted image (PII regions masked).
+    if (c.redacted_image_path && c.redacted_image_path !== c.original_image_path) {
+      const rb = `<img style="display:block; max-width:min(100%,900px); max-height:78vh; width:auto; border:1px solid var(--border); border-radius:8px" ` +
+        `src="/api/review/image?path=${encodeURIComponent(c.redacted_image_path)}" ` +
+        `onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'empty',textContent:'no redacted image'}))">`;
+      steps.push(stepCard(n++, "Redacted image", "PII regions masked", rb));
+    }
+  }
+
+  const host = $("review-steps");
+  host.innerHTML = steps.join("");
+  host.querySelectorAll(".span-del").forEach((btn) => {
+    btn.onclick = () => {
+      const coll = btn.dataset.coll, idx = +btn.dataset.idx;
+      const tf = coll === "pii_spans" ? "entity_type" : "attack_type";
+      const span = (row.detections[coll] || [])[idx];
+      if (span) deleteSpan(row, coll, tf, span);
+    };
+  });
+  const wrap = host.querySelector(".imgwrap");
+  if (wrap) attachImageAnnotation(wrap, row);
+}
+
+// ---- text selection -> add-span popover ----
+function selectionOffsets(container) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) return null;
+  const off = (node, o) => {
+    const w = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let total = 0, nd;
+    while ((nd = w.nextNode())) { if (nd === node) return total + o; total += nd.textContent.length; }
+    return total;
+  };
+  let start = off(range.startContainer, range.startOffset);
+  let end = off(range.endContainer, range.endOffset);
+  if (start > end) { const t = start; start = end; end = t; }
+  if (start === end) return null;
+  return { start, end, text: container.textContent.slice(start, end) };
+}
+
+function handleStepsMouseup(ev) {
+  if (ev.target.closest("button, select, .box-rect, .imgwrap")) return;
+  const container = ev.target.closest(".annotatable");
+  if (!container) return;
+  const offs = selectionOffsets(container);
+  if (!offs) return;
+  const row = visibleRows()[reviewState.index];
+  annotCtx = { mode: "text", row, field: container.dataset.field, start: offs.start, end: offs.end, text: offs.text };
+  openAnnotPop(`Add for: "${offs.text.slice(0, 40)}"`, ev.clientX, ev.clientY, true);
+}
+
+function openAnnotPop(headText, x, y, allowKind) {
+  const pop = $("annot-pop");
+  $("annot-pop-head").textContent = headText;
+  pop.querySelectorAll('input[name="annot-kind"]').forEach((r) => {
+    r.closest("label").style.display = allowKind ? "" : "none";
+    if (r.value === "pii") r.checked = true;
+  });
+  annotKindChanged();
+  pop.classList.remove("hidden");
+  const w = 240, vw = window.innerWidth, vh = window.innerHeight;
+  pop.style.left = Math.max(8, Math.min(x, vw - w - 12)) + "px";
+  pop.style.top = Math.min(y + 8, vh - 180) + "px";
+}
+
+function annotKindChanged() {
+  const kind = (document.querySelector('input[name="annot-kind"]:checked') || {}).value || "pii";
+  const types = (annotCtx && annotCtx.mode === "box")
+    ? ENTITY_TYPES : (kind === "injection" ? ATTACK_TYPES : ENTITY_TYPES);
+  $("annot-type").innerHTML = types.map((t) => `<option value="${t}">${t}</option>`).join("");
+}
+
+function closeAnnotPop() {
+  $("annot-pop").classList.add("hidden");
+  annotCtx = null;
+  const s = window.getSelection && window.getSelection();
+  if (s) s.removeAllRanges();
+}
+
+function confirmAnnot() {
+  if (!annotCtx) return closeAnnotPop();
+  const type = $("annot-type").value;
+  const ctx = annotCtx;
+  if (ctx.mode === "box") {
+    addBox(ctx.row, type, ctx.box);
+  } else {
+    const kind = (document.querySelector('input[name="annot-kind"]:checked') || {}).value || "pii";
+    if (kind === "injection")
+      addTextSpan(ctx.row, "prompt_injection_spans", "attack_type", type, ctx.start, ctx.end, ctx.text);
+    else
+      addTextSpan(ctx.row, "pii_spans", "entity_type", type, ctx.start, ctx.end, ctx.text);
+  }
+  closeAnnotPop();
+}
+
+// ---- image: draw a box -> popover; render existing boxes ----
+function attachImageAnnotation(wrap, row) {
+  const img = wrap.querySelector("img");
+  const layer = wrap.querySelector(".box-layer");
+  if (!img || !layer) return;
+  const place = () => placeBoxes(layer, img, row);
+  if (img.complete && img.naturalWidth) place(); else img.addEventListener("load", place);
+
+  let draw = null;
+  layer.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".box-del")) return;
+    const r = layer.getBoundingClientRect();
+    draw = { x0: e.clientX - r.left, y0: e.clientY - r.top, el: null };
+    wrap.classList.add("drawing");
+    layer.setPointerCapture(e.pointerId);
+  });
+  layer.addEventListener("pointermove", (e) => {
+    if (!draw) return;
+    const r = layer.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const left = Math.min(draw.x0, x), top = Math.min(draw.y0, y);
+    const w = Math.abs(x - draw.x0), h = Math.abs(y - draw.y0);
+    if (!draw.el) { draw.el = document.createElement("div"); draw.el.className = "box-rect box-draft"; layer.appendChild(draw.el); }
+    Object.assign(draw.el.style, { left: left + "px", top: top + "px", width: w + "px", height: h + "px" });
+  });
+  layer.addEventListener("pointerup", (e) => {
+    if (!draw) return;
+    wrap.classList.remove("drawing");
+    const r = layer.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const left = Math.min(draw.x0, x), top = Math.min(draw.y0, y);
+    const w = Math.abs(x - draw.x0), h = Math.abs(y - draw.y0);
+    if (draw.el) draw.el.remove();
+    draw = null;
+    if (w < 6 || h < 6) return;  // ignore clicks / tiny drags
+    const sx = img.naturalWidth / layer.clientWidth, sy = img.naturalHeight / layer.clientHeight;
+    const box = [left * sx, top * sy, (left + w) * sx, (top + h) * sy].map((v) => Math.round(v));
+    annotCtx = { mode: "box", row, box };
+    openAnnotPop("Box PII region", e.clientX, e.clientY, false);
+  });
+}
+
+function placeBoxes(layer, img, row) {
+  layer.innerHTML = "";
+  const boxes = (row.geometry || {}).source_pii_boxes || [];
+  const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+  boxes.forEach((b, i) => {
+    const bx = b.box || [];
+    if (bx.length !== 4) return;
+    const el = document.createElement("div");
+    el.className = "box-rect";
+    el.style.left = (bx[0] / nw * 100) + "%";
+    el.style.top = (bx[1] / nh * 100) + "%";
+    el.style.width = ((bx[2] - bx[0]) / nw * 100) + "%";
+    el.style.height = ((bx[3] - bx[1]) / nh * 100) + "%";
+    el.title = `#${i + 1} ${b.entity_type || ""}${b.text ? ": " + b.text : ""}${b.detector === "human" ? " ·you" : ""}`;
+    const tag = document.createElement("span");
+    tag.className = "box-tag";
+    tag.textContent = i + 1;  // matches the "Boxes ↔ OCR text" table row
+    el.appendChild(tag);
+    if (b.detector === "human") {
+      const del = document.createElement("button");
+      del.className = "box-del"; del.textContent = "×";
+      del.onclick = (ev) => { ev.stopPropagation(); deleteBox(row, b); };
+      el.appendChild(del);
+    }
+    layer.appendChild(el);
+  });
+}
+
+// Group a label_source string into one of three provenance layers.
+const PROV_WEAK = ["api", "weak", "pipeline", "rule", "router", "llm", "verifier"];
+function provCategory(srcVal) {
+  if (!srcVal) return "none";
+  if (srcVal === "human") return "human";
+  if (PROV_WEAK.includes(srcVal)) return "weak";
+  return "source"; // source_gold, source_assumption, source, dataset, ...
+}
+const PROV_TEXT = { source: "source", weak: "weak/auto", human: "you", none: "unset" };
+function provChip(srcVal) {
+  const cat = provCategory(srcVal);
+  const title = srcVal ? `label_source: ${srcVal}` : "no label_source (unknown)";
+  return `<span class="prov prov-${cat}" title="${escapeHtml(title)}">${PROV_TEXT[cat]}</span>`;
+}
+// One-line summary of which layers contributed any known label in this row.
+function provSummary(row) {
+  const src = row.label_source || {};
+  const labels = row.labels || {};
+  const present = new Set();
+  for (const f of ["action", ...RISK_FIELDS]) {
+    if (labels[f] != null) present.add(provCategory(src[f]));
+  }
+  const order = ["source", "weak", "human"];
+  const chips = order.filter((c) => present.has(c))
+    .map((c) => `<span class="prov prov-${c}">${PROV_TEXT[c]}</span>`).join(" ");
+  return chips || `<span class="prov prov-none">unset</span>`;
+}
+
+// ---- rendering: right = sticky control sidebar ----
+function renderReviewSide(row) {
+  const rows = visibleRows();
+  const labels = row.labels || {}, src = row.label_source || {}, mask = row._label_mask || {}, rv = row.review || {};
+
+  // Nav card.
+  let html = `<div class="card" style="padding:14px 16px">`;
+  html += `<div class="controls" style="margin:0; justify-content:space-between">` +
+    `<div style="display:flex; gap:6px"><button class="ghost" onclick="reviewNav(-1)">‹ Prev</button>` +
+    `<button class="ghost" onclick="reviewNav(1)">Next ›</button></div>` +
+    `<label class="field" style="flex-direction:row; align-items:center; gap:5px; font-size:11px">` +
+    `<input type="checkbox" id="review-only-unreviewed" ${reviewState._onlyUnreviewed ? "checked" : ""} onchange="onlyUnreviewedChanged()"> only unreviewed</label></div>`;
+  html += `<div class="muted" style="margin-top:8px; font-size:12px">${reviewState.index + 1} / ${rows.length} · <span class="mono">${escapeHtml(row.input_id)}</span></div>`;
+  html += `<div class="muted" style="margin-top:4px; font-size:11px; text-transform:none">carries: ${provSummary(row)}` +
+    `${hasEdits(row) ? ' · <span class="prov prov-human">unsaved spans</span>' : ""}</div>`;
+  html += `</div>`;
+
+  // Verdict card.
+  html += `<div class="card" style="padding:14px 16px">`;
+  html += `<div class="controls" style="margin:0 0 4px; gap:8px; align-items:center; font-size:11px">` +
+    `<span class="muted" style="text-transform:none">Label from:</span>` +
+    `<span class="prov prov-source">source</span><span class="prov prov-weak">weak/auto</span><span class="prov prov-human">you</span></div>`;
+
+  const aCat = provCategory(src.action);
+  html += `<div class="sub" style="margin-top:8px">Action ${provChip(src.action)}</div>`;
+  html += `<div class="controls" style="margin:4px 0; padding-left:8px; box-shadow:inset 3px 0 0 ${aCat === 'none' ? 'transparent' : `var(--${aCat === 'source' ? 'accent' : aCat === 'weak' ? 'amber' : 'green'})`}">`;
+  for (const a of ACTIONS) {
+    html += `<label class="field" style="flex-direction:row; align-items:center; gap:5px"><input type="radio" name="rv-action" value="${a}" ${labels.action === a ? "checked" : ""}> ${a}</label>`;
+  }
+  html += `<label class="field" style="flex-direction:row; align-items:center; gap:5px"><input type="radio" name="rv-action" value="null" ${labels.action == null ? "checked" : ""}> unknown</label></div>`;
+
+  html += `<div class="sub" style="margin-top:12px">Risk labels <span class="muted" style="text-transform:none">(unknown = masked)</span></div>`;
+  html += `<table class="risk-table"><tr><th>Field</th><th>Value</th><th>From</th><th>M</th></tr>`;
+  for (const f of RISK_FIELDS) {
+    const v = triStr(labels[f]), cat = provCategory(src[f]);
+    html += `<tr class="row-${cat}"><td>${f}</td><td><select data-risk="${f}">` +
+      `<option value="null" ${v === "null" ? "selected" : ""}>unknown</option>` +
+      `<option value="true" ${v === "true" ? "selected" : ""}>true</option>` +
+      `<option value="false" ${v === "false" ? "selected" : ""}>false</option></select></td>` +
+      `<td>${provChip(src[f])}</td><td class="mono">${mask[f] != null ? mask[f] : (labels[f] != null ? 1 : 0)}</td></tr>`;
+  }
+  html += `</table>`;
+
+  html += `<div class="sub" style="margin-top:12px">Status</div><select id="rv-status">` +
+    ["human_reviewed", "needs_review", "skipped", "unreviewed"].map((s) =>
+      `<option value="${s}" ${rv.status === s ? "selected" : ""}>${s}</option>`).join("") + `</select>`;
+  html += `<div class="sub" style="margin-top:12px">Notes</div><textarea id="rv-notes" style="min-height:54px">${escapeHtml(rv.notes || "")}</textarea>`;
+  html += `<div class="controls" style="margin-top:12px"><button class="primary" id="rv-save">Save</button><span id="rv-saved" class="muted"></span></div>`;
+
+  html += `<div class="sub" style="margin-top:14px">VLM router <span class="muted" style="text-transform:none">(paid call)</span></div>`;
+  html += `<div class="controls" style="margin:4px 0"><button class="ghost" id="rv-router">Run router</button>` +
+    `<button class="ghost" id="rv-router-apply" disabled>Apply</button><span id="rv-router-status" class="muted"></span></div>`;
+  html += `<pre id="rv-router-out" class="mono" style="font-size:11px; white-space:pre-wrap; margin:0"></pre>`;
+  html += `</div>`;
+
+  $("review-side").innerHTML = html;
+  $("rv-save").onclick = () => saveReview(row);
+  $("rv-router").onclick = () => runRouter(row);
+}
+
+async function runRouter(row) {
+  $("rv-router").disabled = true;
+  $("rv-router-status").textContent = "calling router…";
+  $("rv-router-out").textContent = "";
+  try {
+    const res = await fetch("/api/review/run-router", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: reviewState.file, input_id: row.input_id }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Router failed");
+    const r = data.result || {};
+    $("rv-router-status").textContent = r.valid ? "ok ✓" : "unsure (invalid output)";
+    $("rv-router-out").textContent = JSON.stringify(data.labels, null, 2) +
+      (r.error ? `\n\nnote: ${r.error}` : "");
+    const applyBtn = $("rv-router-apply");
+    applyBtn.disabled = false;
+    applyBtn.onclick = () => applyRouterLabels(data.labels);
+  } catch (e) {
+    $("rv-router-status").textContent = "error: " + e.message;
+  } finally {
+    $("rv-router").disabled = false;
+  }
+}
+
+function applyRouterLabels(labels) {
+  // Copy router output into the editable form (does not save). Unknown (null)
+  // risk flags are left as-is so a human still confirms them.
+  if (labels.action != null) {
+    const radio = document.querySelector(`input[name="rv-action"][value="${labels.action}"]`);
+    if (radio) radio.checked = true;
+  }
+  for (const sel of document.querySelectorAll("select[data-risk]")) {
+    const v = labels[sel.dataset.risk];
+    if (v === true) sel.value = "true";
+    else if (v === false) sel.value = "false";
+  }
+  $("rv-router-status").textContent = "applied to form — review and save";
+}
+
+async function saveReview(row) {
+  const action = document.querySelector('input[name="rv-action"]:checked');
+  const labels = { action: action ? (action.value === "null" ? null : action.value) : null };
+  for (const sel of document.querySelectorAll("select[data-risk]")) {
+    const v = sel.value;
+    labels[sel.dataset.risk] = v === "null" ? null : (v === "true");
+  }
+  const review = { status: $("rv-status").value, notes: $("rv-notes").value };
+  const span_edits = (reviewState.edits || {})[row.input_id] || null;
+  $("rv-save").disabled = true;
+  $("rv-saved").textContent = "saving…";
+  try {
+    const res = await fetch("/api/review/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: reviewState.file, input_id: row.input_id, labels, review, span_edits }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Save failed");
+    $("rv-saved").textContent = "saved ✓";
+    // Re-fetch so server-merged spans (real ids, recomputed sanitized text) and
+    // updated stats show, and pending edits are cleared. Stay on this row.
+    await reloadCurrentFile();
+  } catch (e) {
+    $("rv-saved").textContent = "error: " + e.message;
+    $("rv-save").disabled = false;
+  }
+}
 </script>
 </body>
 </html>

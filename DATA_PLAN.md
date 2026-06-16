@@ -188,15 +188,18 @@ Completion notes:
 
 ### [ ] `WebPII/webpii`
 
-Decision: accept after sample inspection.
+Decision: accept. Sample inspection passed on 2026-06-16.
 
 Why use it: directly relevant to visible/web PII and image-based PII risk.
 
 First-pass pipeline:
 
-- download a small sample first
-- inspect whether images, OCR text, boxes, and labels are present
+- download a small sample first (done 2026-06-16)
+- inspect whether images, OCR text, boxes, and labels are present (sample
+  inspected 2026-06-16: images and source boxes are present; OCR text and
+  character offsets are not source-provided)
 - run OCR even if source text exists so we test our real image path
+- align source PII boxes to OCR boxes after OCR (implemented 2026-06-16)
 - run PII detection on OCR text
 - map source PII labels only when their meaning is clear
 - redact detected PII boxes before router training
@@ -207,10 +210,55 @@ Human review focus:
 - boxes that are too small, too large, or mapped to the wrong text
 - false positives from web UI labels, buttons, and boilerplate
 
+Bootstrap state:
+
+- 2026-06-16: downloaded the upstream sample files only, not the full multi-GB
+  shard set, into the Hugging Face cache.
+- repo raw link:
+  `data/safety_v0/raw/webpii -> ~/.cache/huggingface/hub/datasets--WebPII--webpii/snapshots/6d3317721b72bde719a361c564ceaf1fbded3a8e`
+- cached sample files:
+  `README.md`, `sample/README.md`, `sample/sample_manifest.json`,
+  `sample/schema_sample_100.parquet`, and
+  `sample/webpii_visual_samples.zip`
+- reproducible command:
+  `python scripts/safety_v0/download/download_webpii.py`
+
+Inspection state:
+
+- 2026-06-16: added `scripts/safety_v0/inspect/inspect_webpii.py` and wrote
+  inspection artifacts under `data/safety_v0/inspection/webpii/`.
+- sample parquet: 100 rows x 18 columns, image bytes plus source UI element
+  boxes, 933 PII elements, 124 unique PII keys.
+- visual zip: 28 page directories, 132 PNG files, 28 metadata files, 10
+  companies, 11 page types.
+- mapping notes written in `docs/datasets/webpii.md`.
+- 2026-06-16: added `scripts/safety_v0/convert/convert_webpii.py` and wrote
+  `data/safety_v0/converted/webpii/source_canonical.jsonl` for the cached
+  100-row sample. Output has image paths and source PII boxes, but no OCR text,
+  OCR boxes, or PII character spans yet.
+- 2026-06-16: extended `scripts/safety_v0/run_ocr.py` so WebPII source boxes
+  are aligned to OCR boxes after OCR and written as source-provenance
+  `detections.pii_spans`. PaddleOCR/model setup remains optional for full runs.
+- 2026-06-16: ran real English PaddleOCR on all 100 cached WebPII sample rows
+  using the `vinai` conda env (`paddleocr==3.7.0`, `paddlepaddle==3.2.2`,
+  `HOME=/tmp/paddle-home`). Output:
+  `data/safety_v0/ocr/webpii/ocr.jsonl`, 100/100 valid rows, 4,937 OCR boxes,
+  333 source-aligned PII spans across 90 rows.
+- 2026-06-16: ran redaction over the 100-row OCR output. Output:
+  `data/safety_v0/redacted/webpii/redacted.jsonl`, 100/100 valid rows, 90
+  redacted images, 335 PII spans/redactions total. The 10 no-redaction rows
+  still have source PII boxes and need alignment review.
+
 Completion notes:
 
 - write `docs/datasets/webpii.md`
 - converter output: `data/safety_v0/converted/webpii/source_canonical.jsonl`
+  (done for cached 100-row sample)
+- OCR/source alignment stage: implemented in `scripts/safety_v0/run_ocr.py`
+  and covered by `tests/test_run_ocr_webpii_alignment.py`; real English OCR
+  done for all 100 cached sample rows
+- redaction output: `data/safety_v0/redacted/webpii/redacted.jsonl` (done for
+  the 100-row cached sample)
 - weak-label output: `data/safety_v0/weak/webpii/weak_labeled.jsonl`
 
 ### [ ] `Meddies/meddies-pii`

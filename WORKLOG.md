@@ -493,3 +493,384 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Updated converter, weak-label, human override, verified, and final dataset paths so converted labels and final verified datasets have clear locations.
 - Verified with rg that removed dataset names and stale interim paths no longer appear. No tests run; docs-only change.
 - Residual risk: folder structure is documented but the actual scripts/schema validator still need to be implemented.
+
+## 2026-06-16 — safety_v0 schema + validator (DATA_PLAN Step 1)
+- Added `src/pipeline/Datasets/safety_v0_schema.py`: canonical-row builders
+  (`new_row`, `new_ocr_box`, `new_pii_span`, `new_prompt_injection_span`,
+  `new_redaction`), label helpers (`empty_labels`, `derive_label_mask`,
+  `model_target`), and `validate_row`/`is_valid_row`.
+- Validator implements the DATA_PLAN Step-1 checklist: required top-level keys,
+  unique box/span/redaction IDs within a row, span `box_ids` -> existing OCR
+  boxes, redaction `source_span_ids` -> existing spans and `box_ids` -> existing
+  boxes, label value constraints (action in safe/reject/unsure or null; risks
+  bool or null), and box geometry shape. `derive_label_mask` enforces
+  `null = unknown` (never trains unknown as negative).
+- Placement follows the updated DATA_PLAN "Project Folder Structure"
+  (`src/pipeline/Datasets/safety_v0_schema.py`); removed an earlier off-plan
+  `src/pipeline/Safety/` package draft.
+- Verified: `tests/test_safety_v0_schema.py` (26 tests) passes.
+- Residual risk: `safety_v0_sources.py` (stable source names + path helpers)
+  not yet written; data/ and scripts/safety_v0/ trees not created.
+
+## 2026-06-16 — safety_v0 source registry + path helpers (DATA_PLAN Step 1 cont.)
+- Added `src/pipeline/Datasets/safety_v0_sources.py`: `SafetySource` registry
+  (11 work-queue sources with stable slugs, upstream names, decisions, image
+  flag), `format_input_id` (safety_v0_<slug>_NNNNNN), and path helpers for the
+  DATA_PLAN folder layout (`converted_path`, `weak_path`, `human_overrides_path`,
+  `source_dir`, `shared_dir`, `final_dir`, `manifests_dir`, etc.). `create=True`
+  makes dirs; default root = data/safety_v0 under repo root, overridable.
+- Keeps all data/safety_v0 paths out of converters/scripts (single source of
+  truth for the layout).
+- Verified: `tests/test_safety_v0_sources.py` (9) + schema tests, 35 total pass.
+- Residual risk: data/safety_v0 and scripts/safety_v0 trees not yet created;
+  no converters written.
+
+## 2026-06-16 — existing_repo_pii converter + validate CLI (DATA_PLAN Steps 1/3)
+- Added `scripts/safety_v0/convert/convert_existing_repo_pii.py`: converts the
+  repo PII datasets (pii_masking_95k, hoangha_vie_pii) into canonical safety_v0
+  rows. Gold privacy_mask spans -> detections.pii_spans (per-dataset
+  label_to_presidio, detector="source_gold"); deterministic anonymization into
+  sanitized_text; PII-only label policy (action=safe, pii_visible/prompt_injection/
+  political/religious=false with label_source, visual labels null/masked-out).
+  Straight convert: no LLM verifier / weak-review pass, per user direction.
+- Added `scripts/safety_v0/validate_safety_v0.py`: CLI wrapping validate_row over
+  JSONL files; per-file pass/fail counts, first errors, non-zero exit on invalid.
+- Added `docs/datasets/existing_repo_pii.md` + index row in datasets README.
+- Verified: `tests/test_convert_existing_repo_pii.py` (6, importlib-loaded, no
+  download) + validate CLI smoke (1 valid / 1 invalid, exit 1). Full suite 99 pass.
+- Not run on real data yet (gated sources need HF_TOKEN + download; kept optional
+  per project policy). Residual risk: real-data run/row counts unverified;
+  visual-label-null policy is a stated assumption open to revision.
+
+## 2026-06-16 — webdemo safety_v0 review/annotate tab (DATA_PLAN Step 6)
+- Added `webdemo/safety_v0_review.py`: load canonical rows + apply human
+  overrides (latest per input_id wins), discover canonical files under
+  data/safety_v0, save overrides to review/human_overrides/<slug>.jsonl (slug
+  inferred from converted/weak path, else file stem), path-traversal-guarded
+  file/image resolution, tri-state label coercion (true/false/null).
+- Wired routes into `webdemo/app.py`: GET /api/review/files, /api/review/rows,
+  /api/review/image, POST /api/review/save.
+- Added "Annotate" tab to `templates/index.html`: renders input text (PII
+  highlighted), sanitized text, original/redacted images, OCR text+boxes, PII /
+  prompt-injection span tables, source labels; editable label form (action
+  radio, 7 risk tri-state selects with mask column + label_source, review status
+  + notes), prev/next nav, only-unreviewed filter, live stats.
+- Added `scripts/safety_v0/make_demo_review_sample.py`: generates 5 varied demo
+  rows (2 text PII via real converter, 1 prompt-injection reject, 1 image+OCR
+  PII with rendered + redacted PNGs, 1 visual-safety reject) under
+  data/safety_v0/samples/demo/ so the tab is usable before gated downloads.
+- Verified: tests/test_safety_v0_review.py (5) incl. override roundtrip,
+  latest-wins, traversal block, bad-value rejection. Flask test-client smoke:
+  files/rows/save/image all 200, traversal blocked (404/400), GET / renders tab.
+  Full suite 104 pass. Demo sample validates 5/5.
+- Residual risk: not exercised in a real browser this session (test-client
+  only); OCR/redaction/router stages still TODO (demo uses pre-rendered images).
+
+## 2026-06-16 - WebPII sample cache bootstrap
+- Changed: downloaded WebPII/webpii upstream sample files into the Hugging Face cache and linked data/safety_v0/raw/webpii to the cached snapshot; added scripts/safety_v0/download/download_webpii.py for reproducible sample/full downloads; recorded the bootstrap state in DATA_PLAN.md.
+- Verified: raw symlink resolves to the HF cache snapshot; sample files are present; schema_sample_100.parquet loads as 100 rows x 18 columns; download script passes py_compile and --help.
+- Residual risk: full WebPII train/test shards were intentionally not downloaded yet; source mapping, converter, OCR, and weak-label passes still need implementation after sample inspection.
+
+## 2026-06-16 - WebPII sample inspection notes
+- Changed: added scripts/safety_v0/inspect/inspect_webpii.py; generated ignored inspection artifacts under data/safety_v0/inspection/webpii/; documented WebPII source schema, box format, provisional Presidio mapping, conversion plan, and risks in docs/datasets/webpii.md; added the WebPII index row and updated DATA_PLAN.md inspection state.
+- Verified: inspect script passes py_compile and --help; inspection script reads the cached sample and writes schema.json, stats.json, manifest_summary.json, and sample_rows.jsonl. Sample inspection found 100 parquet rows x 18 columns, 933 PII elements, 124 unique PII keys, and visual zip metadata for 28 sample pages / 132 PNGs.
+- Residual risk: no converter/OCR/redaction pass yet; source boxes still need alignment to OCR boxes before writing canonical pii_spans with box_ids.
+
+## 2026-06-16 - WebPII decision alignment
+- Changed: marked WebPII as accepted after sample inspection in DATA_PLAN.md and aligned the safety_v0 source registry decision to accept.
+- Verified: python -m py_compile for WebPII download/inspect helpers and safety_v0_sources.py; PYTHONPATH=. pytest tests/test_safety_v0_sources.py passed (9 tests).
+- Residual risk: converter/OCR/redaction implementation remains next.
+
+## 2026-06-16 — Image OCR + redaction runtime stages
+
+- Added `src/pipeline/Image/` package: `ocr.py` (narrow `OcrAdapter` interface +
+  lazy `PaddleOcrAdapter` backend, `get_ocr_adapter` registry, `OcrResult`/
+  `OcrSegment` with char-aligned offsets and `build_full_text`/`quad_to_aabb`
+  helpers) and `redaction.py` (`map_span_to_box`/`map_spans_to_boxes` span→OCR-box
+  mapping with padding+clamp, `redact_image` blur/fill via lazy Pillow,
+  `image_size`).
+- Added stage CLIs `scripts/safety_v0/run_ocr.py` (converted→ocr) and
+  `scripts/safety_v0/run_pii_redaction.py` (ocr→redacted, runs regex_recall on
+  OCR text, maps spans to boxes, blurs image, anonymizes OCR text). Both default
+  paths from the source registry; new path helpers `ocr_path`/`redacted_path`/
+  `redacted_images_dir` added to `safety_v0_sources.py`. These stages fill
+  content/geometry/detections only, never labels (null stays unknown).
+- Tests: `tests/test_image_ocr_redaction.py` (12) — offset assembly, paddle
+  normalize without engine, registry, span→box mapping (single/merge/clamp/
+  no-overlap/skip), blur+fill+empty+bad-method redaction, and an end-to-end
+  `redact_row` on a synthetic phone-number row asserting box mapping, redacted
+  image written, and labels untouched.
+- Verified: full suite 116 passed, 1 skipped. End-to-end run of
+  run_pii_redaction.py on the demo sample detected the phone number, mapped it
+  to its OCR box, blurred the region, anonymized OCR text to <PHONE_NUMBER>, and
+  wrote a redacted PNG; labels unchanged.
+- Doc: added "Implementation Status" to docs/image-safety-pipeline.md.
+- Residual risk: PaddleOCR not installed in this env (adapter raises a clear
+  ImportError on run); real-image OCR accuracy unverified. VLM router + fallback
+  (stages 4–7) still TODO.
+
+## 2026-06-16 — Demo generator uses the real redaction stage
+
+- Rewrote `image_pii_row` in scripts/safety_v0/make_demo_review_sample.py to
+  render the doc image + simulated OCR boxes (no PaddleOCR in env) and then call
+  the production `run_pii_redaction.redact_row` to fill pii_spans /
+  redaction_metadata / sanitized_ocr_text and produce the blurred image, instead
+  of the old hardcoded solid_fill + manual span/redaction construction. Removed
+  the `solid_fill` helper. Demo labels still set separately (stage never sets
+  labels).
+- Verified: regenerated demo sample (5/5 rows valid); image row now shows
+  detector="presidio", method="blur", real span→box mapping (PHONE_NUMBER ->
+  box_0014), sanitized OCR text, and a stage-produced redacted PNG. Full suite
+  116 passed, 1 skipped.
+
+## 2026-06-16 - WebPII sample converter
+- Changed: added scripts/safety_v0/convert/convert_webpii.py and tests/test_convert_webpii.py; converted the cached WebPII 100-row parquet sample to data/safety_v0/converted/webpii/source_canonical.jsonl; wrote 100 image files under data/safety_v0/converted/webpii/images; updated docs/datasets/webpii.md and DATA_PLAN.md with converter behavior/output.
+- Verified: python -m py_compile for the converter/test; PYTHONPATH=. pytest tests/test_convert_webpii.py tests/test_safety_v0_sources.py passed (13 tests); python scripts/safety_v0/validate_safety_v0.py data/safety_v0/converted/webpii/source_canonical.jsonl passed with 100/100 valid rows. Converted output has 100 rows, 100 images, 923 mapped source PII boxes, and intentionally empty OCR boxes / PII spans.
+- Residual risk: OCR/alignment/redaction stages are still needed before WebPII can produce final weak-labeled rows.
+
+## 2026-06-16
+- Changed: extended `scripts/safety_v0/run_ocr.py` with WebPII source-box to OCR-box alignment and added `tests/test_run_ocr_webpii_alignment.py`; updated `DATA_PLAN.md` and `docs/datasets/webpii.md`.
+- Verified: `python -m py_compile scripts/safety_v0/run_ocr.py tests/test_run_ocr_webpii_alignment.py`; `python scripts/safety_v0/run_ocr.py --help`; `PYTHONPATH=. pytest tests/test_run_ocr_webpii_alignment.py tests/test_image_ocr_redaction.py tests/test_convert_webpii.py tests/test_safety_v0_sources.py` (28 passed).
+- Risk: real PaddleOCR/model run was not executed; alignment is validated with fake OCR and will need a small real-OCR smoke once dependencies are installed.
+
+## 2026-06-16 — VLM safety router (stage 4) + explicit webdemo button
+
+- Added `src/pipeline/Router/` package: `router.py` (`SafetyRouter` interface +
+  `GeminiVlmRouter` default backend over Gemini's OpenAI-compatible endpoint,
+  `get_router`/`list_router_names` registry; lazy openai client + lazy API key
+  from GEMINI_API_KEY/GOOGLE_API_KEY; any call failure routes to unsure with the
+  error captured), `input.py` (`build_router_input` merges a canonical row into
+  the compact input contract — prefers redacted image, sanitized text/OCR, span/
+  redaction summaries, modality flags; `encode_image_data_url`), `output.py`
+  (`parse_router_output`/`RouterResult` — flat-JSON validation reusing
+  ACTION_VALUES/RISK_FIELDS; invalid/missing -> unsure, unknown flags stay None,
+  `to_labels()`). Config is single-source in router.py (DEFAULT_MODEL
+  gemini-flash-latest, Gemini base URL).
+- webdemo: `POST /api/review/run-router` (lazily cached router, returns decision
+  + labels + modalities, writes no labels), `get_row` helper in
+  safety_v0_review.py, and a "Run router" + "Apply to form" control in the
+  Annotate Labels card. Fired only on click (paid); apply copies output into the
+  form without saving so a human still confirms.
+- Tests: tests/test_router.py (12) — output parsing (valid/bad-action/missing-
+  flag/garbage/fenced-JSON), input building (redacted-preferred + text-only),
+  backend with fake client (valid/malformed/api-error/sends-image), registry.
+- Verified: full suite 135 passed, 1 skipped. Flask test-client smoke with an
+  injected fake router: image row -> 200 with valid reject result; bad file /
+  missing input_id -> 400. Real router with no key degrades to unsure (no crash).
+- Docs: Implementation Status added to docs/vlm-safety-router.md; webdemo README
+  documents the endpoint + button.
+- Residual risk: no real Gemini call made this session (no key in env / paid
+  budget); live VLM accuracy + Gemini's exact response_format/image handling
+  unverified. Classifier-head + fallback routing still TODO.
+- Follow-up: refined WebPII OCR alignment to prefer text-compatible overlapping OCR boxes with geometry fallback; reran `PYTHONPATH=. pytest tests/test_run_ocr_webpii_alignment.py tests/test_image_ocr_redaction.py tests/test_convert_webpii.py tests/test_safety_v0_sources.py` (30 passed).
+
+## 2026-06-16
+- Changed: extended scripts/safety_v0/run_ocr.py with WebPII source-box to OCR-box alignment and added tests/test_run_ocr_webpii_alignment.py; updated DATA_PLAN.md and docs/datasets/webpii.md.
+- Verified: python -m py_compile scripts/safety_v0/run_ocr.py tests/test_run_ocr_webpii_alignment.py; python scripts/safety_v0/run_ocr.py --help; PYTHONPATH=. pytest tests/test_run_ocr_webpii_alignment.py tests/test_image_ocr_redaction.py tests/test_convert_webpii.py tests/test_safety_v0_sources.py (30 passed).
+- Risk: real PaddleOCR/model run was not executed; alignment is validated with fake OCR and needs a small real-OCR smoke once dependencies are installed.
+
+## 2026-06-16 — Batch router stage + fallback queue + API-label layer
+
+- Added scripts/safety_v0/run_router.py: batch routes canonical rows (default
+  redacted/<slug>/redacted.jsonl) through the VLM safety router and writes
+  review/api_labels/<slug>.jsonl (one record/row, label_source="api", unknown
+  flags stay None, unsure/invalid -> review.status needs_review) plus
+  review/queue/<slug>.jsonl (fallback queue of unsure/invalid rows with reason).
+  Cost discipline: refuses to run without --limit N (or explicit --all) since it
+  is one paid call per row. Pure helpers api_label_record/queue_record/route_rows.
+- webdemo review tool now applies API/router labels as a BASE layer beneath human
+  overrides: generalized _apply_override into _apply_label_layer(row, rec,
+  default_source) that honors the record's own label_source; added
+  api_labels_path_for + _layer_path_for (now also resolves ocr/redacted source
+  slugs); load_rows applies api_labels then overrides, adds stats["routed"] and
+  row["_routed"]. Stats line in the Annotate tab shows "N routed".
+- Tests: tests/test_run_router.py (3 — record provenance/status, queue only
+  unsure+invalid, limit) and a new review test asserting API layer shows as
+  label_source=api/needs_review and a human override wins on top. Full suite 141
+  passed, 1 skipped.
+- Verified: end-to-end CLI run with an injected fake router (alternating safe/
+  unsure) wrote api labels + queued the 2 unsure rows; --limit guard rejects an
+  unbounded run.
+- Docs: batch stage + queue + API-label layer documented in
+  docs/vlm-safety-router.md and webdemo/README.md.
+- Residual risk: still no real Gemini call (no key/budget this session); live
+  routing accuracy unverified. No queue-driven UI view yet (rows surface via the
+  needs_review status / "only unreviewed" filter, not a dedicated queue picker).
+
+## 2026-06-16 — Ran existing_repo_pii converter on real data (500/source)
+
+- Ran scripts/safety_v0/convert/convert_existing_repo_pii.py --limit 500 using
+  the local HF dataset cache (HF_HUB_OFFLINE=1; no HF_TOKEN in env, datasets
+  pii_masking_95k + hoangha_vie_pii already cached). Wrote 1000 rows to
+  data/safety_v0/converted/existing_repo_pii/source_canonical.jsonl (500/source,
+  0 invalid).
+- Validated: validate_safety_v0.py reports 1000/1000 valid. Spot check: gold PII
+  spans -> detections.pii_spans (PERSON/LOCATION/ORGANIZATION/PHONE_NUMBER/EMAIL/
+  ID/BANK_ACCOUNT/DATE_TIME), deterministic <ENTITY> anonymization in
+  sanitized_text, PII-only labels (action=safe, pii_visible/prompt_injection/
+  political/religious known, visual sexual/violence/blood_gore=None) with
+  label_source provenance. ~3/40 sample rows had no mapped spans (labels dropped
+  by taxonomy mismatch) — expected.
+- Verified in webdemo: /api/review/files discovers the file; /api/review/rows
+  loads 1000 rows; override path slug-resolves to
+  review/human_overrides/existing_repo_pii.jsonl; label_mask = 1 for the known
+  PII-policy fields and 0 for the unknown visual fields (sexual/violence/
+  blood_gore), confirming "null = unknown" is respected end to end.
+- Residual risk: data/ is gitignored (regenerate from cache). Only the first 500
+  rows/source converted; full conversion deferred. Real Gemini routing still
+  unrun.
+
+## 2026-06-16 — Annotate tab: color-coded label provenance
+
+- Added a 3-layer provenance display to the webdemo Annotate Labels card so the
+  reviewer can tell where each label's current value came from, derived from
+  label_source: "source" (blue; converter/sample's own: source_gold/
+  source_assumption/source), "weak/auto" (amber; pipeline/router: pipeline/rule/
+  api/...), "you" (green; human override). After save, fields flip to "you".
+- Implemented in templates/index.html: provCategory/provChip/provSummary JS
+  helpers + .prov/.row-* CSS; each action + risk field shows a colored chip and
+  the risk-table rows are tinted on the left edge by layer; a per-row layer
+  summary appears in the nav header and atop the Labels card; added a legend.
+- Verified: GET / renders with the new UI tokens; full suite 142 passed, 1
+  skipped. Confirmed real existing_repo_pii rows expose label_source
+  (source_gold/source_assumption) that maps to the "source" layer.
+- Docs: provenance legend documented in webdemo/README.md.
+
+## 2026-06-16
+- Changed: updated PaddleOCR adapter for PaddleOCR 3.x constructor/result shapes, fixed NumPy polygon box normalization, preserved source-aligned WebPII spans during redaction, and documented the English OCR smoke in DATA_PLAN.md/docs/datasets/webpii.md.
+- Ran: installed paddleocr==3.7.0 and paddlepaddle==3.2.2 in the existing vinai conda env after paddlepaddle==3.3.1 failed CPU inference; used HOME=/tmp/paddle-home for PaddleX model cache.
+- Output: data/safety_v0/ocr/webpii/ocr.jsonl (5 rows, 666 OCR boxes, 34 source-aligned PII spans) and data/safety_v0/redacted/webpii/redacted.jsonl plus 5 redacted images (35 spans/redactions total).
+- Verified: py_compile for OCR/redaction scripts and tests; PYTHONPATH=. pytest tests/test_image_ocr_redaction.py tests/test_run_ocr_webpii_alignment.py tests/test_convert_webpii.py tests/test_safety_v0_sources.py (32 passed); validate_safety_v0.py on OCR and redacted WebPII artifacts (5/5 valid each).
+- Risk: PaddleOCR model cache is in /tmp/paddle-home and may need redownload after cleanup; only 5 WebPII rows were smoke-tested, not the full 100-row cached sample.
+
+## 2026-06-16 — Convert local_vi_prompt_injection (first prompt-injection source)
+- Added `scripts/safety_v0/convert/convert_local_vi_prompt_injection.py`: straight-converts the three local Vietnamese prompt-injection seed files (`data/prompt_injection/vietnamese_{seed,app_seed,mentor_seed}.jsonl`) into canonical safety_v0 rows. Text-only, no download/token.
+- Label policy (`prompt_injection_text_labels`): `prompt_injection = bool(gold label)` with `label_source="source_gold"`; `action` reject/safe (source_assumption); `pii_visible`/`political`/`religious` False (source_assumption); `sexual`/`violence`/`blood_gore` stay None (no image — null=unknown preserved). Attack rows get one whole-text `prompt_injection_span` (attack_type=category, detector=source_gold); benign rows get none.
+- Ran the real conversion: 120 rows (74 attack, 46 benign), 0 invalid; validated with validate_safety_v0.py (120/120 valid). Output at data/safety_v0/converted/local_vi_prompt_injection/source_canonical.jsonl.
+- Docs: docs/datasets/local_vi_prompt_injection.md (format, mapping, label policy table) + index row in docs/datasets/README.md.
+- Tests: tests/test_convert_local_vi_prompt_injection.py (7 tests, pure functions + real-file load). Full suite 150 passed, 1 skipped.
+- Residual risk: pii_visible=False is an assumption (seeds aren't PII-annotated); if any seed text embeds personal data it would be mislabelled. The seeds are hand-authored instruction prompts, so this is low-risk but not gold-verified.
+
+## 2026-06-16
+- Changed: ran English PaddleOCR and redaction over the full cached 100-row WebPII sample, replacing the previous 5-row smoke artifacts; updated DATA_PLAN.md and docs/datasets/webpii.md with full-sample counts.
+- Output: data/safety_v0/ocr/webpii/ocr.jsonl has 100 valid rows, 4,937 OCR boxes, and 333 source-aligned PII spans across 90 rows. data/safety_v0/redacted/webpii/redacted.jsonl has 100 valid rows, 90 redacted images, and 335 PII spans/redactions total.
+- Verified: validate_safety_v0.py on OCR and redacted WebPII artifacts (100/100 valid each); PYTHONPATH=. pytest tests/test_image_ocr_redaction.py tests/test_run_ocr_webpii_alignment.py tests/test_convert_webpii.py tests/test_safety_v0_sources.py (32 passed).
+- Risk: 10 rows still have source PII boxes but no aligned OCR spans/redactions at the current overlap threshold; review those alignment misses before treating the redacted sample as complete.
+
+## 2026-06-16 — Text converters: assert sexual/violence/blood_gore False (was null)
+- Fixed an inconsistency surfaced in the Annotate tab review: the two text converters left sexual/violence/blood_gore as null ("visual-only, no image") while asserting political/religious False. The schema has one field per risk (no text-vs-visual split), so for ordinary text the content axes are judgeable and should be asserted, not masked.
+- convert_existing_repo_pii.py (`pii_only_text_labels`) and convert_local_vi_prompt_injection.py (`prompt_injection_text_labels`): sexual/violence/blood_gore now False with label_source="source_assumption". null is now reserved for image sources whose visual axes are uninspected.
+- Regenerated both files: existing_repo_pii 1000/1000 valid, local_vi_prompt_injection 120/120 valid. derive_label_mask now = 1 across all 8 heads on these text rows (every head supervised; nothing masked out).
+- Updated docstrings, both dataset docs' label-policy tables, and tests. Full suite 150 passed, 1 skipped.
+- Residual risk: source_assumption, not gold. A PII row that happens to embed violent/sexual text (e.g. clinical injury mentions in medical PII) would be a false negative on that axis. Low for these corpora (synthetic PII / hand-authored instruction prompts), and a human override flips it during review.
+
+## 2026-06-16
+- Changed: integrated WebPII OCR/redaction artifacts into the webdemo Annotate tab by adding redacted/ocr JSONL discovery, row-level image PII artifact counts, alignment-miss warnings, and detector/box columns for span tables; documented the behavior in webdemo/README.md.
+- Verified: python -m py_compile webdemo/safety_v0_review.py webdemo/app.py tests/test_safety_v0_review.py; PYTHONPATH=. pytest tests/test_safety_v0_review.py (6 passed); live GET /api/review/files on http://127.0.0.1:5001 lists the redacted and OCR WebPII files.
+- Risk: UI was integrated without browser screenshot automation; Claude is actively editing nearby webdemo files, so reconcile overlapping frontend changes before committing.
+
+## 2026-06-16 — Expand PII entity taxonomy 8 -> 21 types (redaction completeness)
+- Problem (found via Annotate tab): VI_PII_LABEL_TO_PRESIDIO mapped only 23 of pii_masking_95k's ~110 labels, dropping 46.5% of gold PII spans. The existing_repo_pii safety converter then redacted only the mapped subset yet labeled rows pii_visible=False/source_gold — leaving PINs, license/insurance/medical numbers, IPs, salaries, crypto, passwords, diagnoses in the "sanitized" text.
+- Per user decision (expand globally, fine-grained, drop non-identifying tokens): rewrote VI_PII_LABEL_TO_PRESIDIO to map every personal-data label to one of 21 target types (8 original + 13 new: CREDIT_CARD, CRYPTO, IP_ADDRESS, URL, CREDENTIAL, FINANCIAL, MEDICAL, VEHICLE, USERNAME, NRP, OCCUPATION, EDUCATION, PROPERTY). Added VI_PII_DROPPED_LABELS = {LOAI_TIEN_TE, TY_GIA_HOI_DOAI, NGON_NGU, MUI_GIO, MA_SAN_BAY, MA_GA_TRAM} (genuinely non-PII). All 110 labels accounted for.
+- Extended LLMVerifier.ENTITY_TYPES enum with the 13 new types (only hard enum constraint; MISC kept). Updated convert_webpii.py map (card->CREDIT_CARD, login->USERNAME/CREDENTIAL, codes->ID) off MISC. convert_existing_repo_pii.py needed no logic change (reads label_to_presidio).
+- Regenerated existing_repo_pii (1000/1000 valid). Drop rate fell 46.5% -> 1.8% (only the 6 non-PII labels). Verified screenshot row safety_v0_existing_repo_pii_000001 now redacts the asset/property spans (<PROPERTY>) it previously leaked; pii_visible=False is now honest. local_vi_prompt_injection unaffected (no PII spans).
+- Docs: rewrote pii-masking-95k.md taxonomy section (full 21-type table, dropped set, detection-coverage caveat); updated existing_repo_pii.md coverage notes. Tests: new tests/test_pii_taxonomy.py (7), updated test_convert_existing_repo_pii.py + test_convert_webpii.py. Full suite 157 passed, 1 skipped.
+- Residual risk: evaluator derives its type set dynamically from the mapping, so detection eval on pii_masking_95k now counts the 13 new types with NO recognizer -> 0 recall on them, lowering headline recall. Read detection quality on the recognizer-covered 8-type subset until detectors are added (easy regex follow-ups: IP_ADDRESS, URL, CRYPTO, CREDIT_CARD).
+
+## 2026-06-16 — Regex recognizers for 4 mechanical PII types (restore detection recall)
+- Added high-precision, mostly context-free patterns to CustomPatternRecognizer.build_patterns() (always-on base set) for the easy mechanical members of the expanded taxonomy: URL (http/https/www, trailing punctuation trimmed), IP_ADDRESS (octet-validated IPv4, full canonical IPv6 incl. compressed ::, MAC), CRYPTO (Ethereum 0x+40hex, Bitcoin base58/bech32, Litecoin), CREDIT_CARD (4-4-4-4 grouped, "số thẻ/card number" context, CVV context -> CREDIT_CARD per taxonomy).
+- These 4 types previously had 0 detection recall after the taxonomy expansion; now covered. Remaining 9 new types (CREDENTIAL, FINANCIAL, MEDICAL, VEHICLE, USERNAME, NRP, OCCUPATION, EDUCATION, PROPERTY) still have no detector.
+- Verified end-to-end via get_pipeline('regex_only'): all 4 detected with value-only spans and correct types/scores. Fixed initial IPv6 alternation (missing prefix/suffix branches) and URL trailing-comma/period capture.
+- Tests: tests/test_custom_recognizer_mechanical.py (9 tests: supported_entities, url + trailing-punct, ipv4 octet validation, ipv6 full/compressed, mac, crypto BTC/ETH/LTC, credit card grouped + CVV, value-only span). Updated docs/datasets/pii-masking-95k.md detection-coverage note (12 of 21 types now covered). Full suite 166 passed, 1 skipped.
+- Residual risk: base58 crypto patterns (length 26-35) and 4-4-4-4 credit-card grouping could occasionally over-match long alphanumeric/grouped-digit strings; scores set moderate (0.78-0.85). No Luhn check on card numbers. Precision can be tuned if FP appear in eval.
+
+## 2026-06-16 — Mapped-type eval of regex_only after taxonomy + new recognizers (5000-row dev sample)
+- Ran scripts/evaluate_pipeline.py --pipeline regex_only --dataset pii_masking_95k --split train --limit 5000 (deterministic, non-LLM, offline cache). Validates the 4 new recognizers and checks precision regression on the original 8.
+- No precision regression: original-8 precision all >=0.954 (PHONE 0.954, rest >=0.994); overall mapped-type precision 0.994 (105 fp / 17344 tp).
+- New 4 recognizers high quality: URL P=1.00 R=1.00 F1=1.00 (200); IP_ADDRESS P=0.998 R=1.00 F1=0.999 (653); CRYPTO P=0.986 R=0.971 F1=0.978 (494); CREDIT_CARD P=0.997 R=0.808 F1=0.892 (332, recall capped by non-grouped numbers w/o context).
+- Headline recall (all 21 types) 0.439 — depressed purely by the 9 still-uncovered types (10,172 fn, 0 recall by design). On the recognizer-covered 12-type subset: P=0.994 R=0.591 F1=0.742. The covered-subset recall reflects pre-existing regex limits on PERSON/ORG/ID (NER-style types), not the new work.
+- Conclusion: new recognizers are precise and effective; expansion did not hurt the original types. Read detection headline on the covered-12 subset until detectors exist for the remaining 9 (CREDENTIAL/FINANCIAL/MEDICAL/VEHICLE/USERNAME/NRP/OCCUPATION/EDUCATION/PROPERTY) — those are context-driven, better suited to NER/LLM than regex.
+
+## 2026-06-16 — Tried Luhn-gated bare credit-card pattern; reverted (net negative)
+- Added a reusable `validator` hook to ContextRegexPattern + a `luhn_check(value)` helper, then a bare card-number pattern gated by Luhn. Measured on the 5k dev sample: precision collapsed 0.997 -> 0.619 (+206 fp) for +3 tp — in banking-heavy data ~10% of 16-digit account/ID numbers pass Luhn.
+- Tightened to require a valid issuer prefix (IIN by brand+length) AND Luhn: much better (15 fp vs 206) but still net-negative — only +1 tp for +14 fp, CREDIT_CARD F1 0.892 -> 0.877. The 79 CREDIT_CARD misses are CVVs / non-standard SO_THE values, not bare brand cards, so bare matching can't recover them.
+- Decision: removed the bare pattern; kept the `validator` hook + `luhn_check` (both unit-tested) for a future context-gated card pattern. CREDIT_CARD back to baseline P=0.997 R=0.808 F1=0.892; overall precision 0.994. Full suite 168 passed, 1 skipped.
+
+## 2026-06-16 — Redesign Annotate tab (top-down stepper) + manual text/image annotation
+
+Reworked the webdemo Annotate tab from a flat two-panel review into a top-down
+stepper and added the ability to add/delete missed detections (the tab is now a
+real labeling tool, not just label review).
+
+Layout: left column scrolls through ordered evidence steps (source & modality →
+input text → PII spans → prompt-injection spans → image → OCR text); right
+sticky sidebar holds the row verdict + actions (nav, action, 7 risk flags,
+status/notes, Save, VLM router). User chose "controls in right sidebar" and
+"text + image boxes" scope.
+
+Manual annotation:
+- Text: select a substring in the Input/OCR step -> popover -> add as PII span
+  (21-type taxonomy) or prompt-injection span (attack type); delete via row ×.
+  Offsets captured with a TreeWalker over the container text nodes; the span
+  label is rendered via CSS ::after (data-lbl) so it stays out of textContent
+  and selection offsets map cleanly.
+- Image: drag a rectangle on the original image -> popover -> add a
+  source_pii_box (coords normalized to natural image size); delete via × on the
+  box. Existing boxes render as percentage-positioned overlays.
+- Human items carry detector="human" (dashed green); adding/removing a PII span
+  re-derives the sanitized-text preview live so pii_visible:false stays honest.
+
+Backend (webdemo/safety_v0_review.py): save_override gained an optional
+span_edits arg; clean_span_edits validates+bounds added spans/boxes against the
+row text; _merge_span_edits applies adds (stamping span_id/score/human) and
+deletes (by (start,end,type) key for spans, box_id for boxes) on top of the
+row's detections, recomputing sanitized_text when PII changes; latest override
+line wins so re-applying the same edit is idempotent. app.py forwards span_edits.
+Frontend Save sends the row's pending edits then re-fetches the file (server
+assigns real ids, clears pending state).
+
+Schema: validate_row now collects box_ids from geometry.source_pii_boxes in
+addition to ocr_boxes, so human image boxes (and spans referencing them) stay
+schema-valid when overrides are baked in.
+
+Verified: tests/test_safety_v0_review.py extended with 7 span/box tests (add PII
++ reanonymize, delete existing gold span, add injection span, add image box,
+merged-row-still-validates, idempotent re-apply, bad-input rejection). Flask
+test client renders the new layout (GET / 200, contains annotate-layout +
+annot-pop). Full suite: 175 passed, 1 skipped. No icons used.
+
+Residual risk: image-box drawing is mouse/pointer-driven and untested by unit
+tests (only the backend merge is); OCR-text spans share the pii_spans collection
+with input-text spans (offsets are not disambiguated by which text field they
+target) — fine for current single-text rows but worth revisiting if a row has
+both input_text and ocr_text with overlapping offsets.
+
+## 2026-06-16 — Annotate tab: full-bleed wide layout
+
+The redesigned Annotate tab inherited the 1100px centered `.wrap`, so on wide
+monitors it floated mid-screen with large empty side gutters. Made `#view-review`
+full-bleed (`margin-inline: calc(50% - 50vw)` breakout, `html{overflow-x:hidden}`
+to contain the 50vw math) so it uses the whole viewport; widened the sidebar to
+420px and let the steps column take the rest. Capped the original image at 920px
+and mono text blocks at 1100px so they stay readable instead of stretching
+edge-to-edge. Analyze/Log keep the narrow centered wrap. Verified GET / renders
+200 with the new classes.
+
+## 2026-06-16 — Annotate tab: image step sequence + sidebar overflow fix
+
+Per review feedback, decomposed the image area into the pipeline order the user
+wanted: OCR text -> "Image — detection boxes" (original image, numbered PII box
+overlays, drag-to-add) -> "Boxes ↔ OCR text" (table: #, box_id, type, text,
+detector; row numbers match the badges drawn on the image) -> "Redacted image".
+Each image box now carries a small index badge (box-tag) cross-referencing its
+table row.
+
+Fixed the sidebar risk table spilling past the card border: the global
+`select{min-width:200px}` forced the VALUE column too wide for the 420px sidebar.
+Added `.annotate-side select{min-width:0;width:100%}`, `table-layout:fixed` with
+explicit `.risk-table` column widths (36/40/17/7%), and tighter cell padding so
+the FIELD/VALUE/FROM/M columns fit inside the card. Also hardened image height
+caps (max-height:78vh) on original + redacted images.
+
+Verified: GET / renders 200, JS brace-balanced, step order OCR < image < boxes
+table < redacted, risk-table class + select override present.

@@ -56,60 +56,68 @@ A list of dicts, character offsets into `source_text`:
 
 The loader coerces this through `normalize_privacy_mask` (handles JSON strings / numpy arrays).
 
-## Label taxonomy & mismatch with our entity types
+## Label taxonomy & mapping to our entity types
 
-This is the important part. The dataset has **~111 distinct fine-grained labels**, but our pipeline
-targets only **9 Presidio types** (`PERSON, LOCATION, ORGANIZATION, PHONE_NUMBER, EMAIL_ADDRESS,
-BANK_ACCOUNT, ID, DATE_TIME, MISC`). The mapping is owned by the dataset class
-(`VI_PII_LABEL_TO_PRESIDIO`) and consumed as the evaluator's default `label_to_presidio`.
+The dataset has **~110 distinct fine-grained labels**. We map **every label that denotes personal
+data** to one of **21 target types** — the original 8 (`PERSON, LOCATION, ORGANIZATION,
+PHONE_NUMBER, EMAIL_ADDRESS, BANK_ACCOUNT, ID, DATE_TIME`) plus **13 added** for full PII coverage
+(`CREDIT_CARD, CRYPTO, IP_ADDRESS, URL, CREDENTIAL, FINANCIAL, MEDICAL, VEHICLE, USERNAME, NRP,
+OCCUPATION, EDUCATION, PROPERTY`). `MISC` remains a verifier-only catch-all (no label maps to it).
+The mapping is owned by the dataset class (`VI_PII_LABEL_TO_PRESIDIO`) and consumed as the
+evaluator's default `label_to_presidio`.
 
-### Mapped (23 labels → 8 types)
+This expansion exists so the `safety_v0` converter redacts **all** gold PII: previously only 23
+labels mapped and ~46% of gold spans were dropped, leaving real PII (PINs, license/insurance/medical
+numbers, IPs, salaries, …) in the "sanitized" text while the row claimed `pii_visible: False`. Now
+only the genuinely non-identifying tokens below are dropped (~1.8% of spans).
 
-| Presidio type | Dataset labels |
+### Mapped (target type → dataset labels)
+
+| Target type | Dataset labels |
 |---------------|----------------|
-| `PERSON` | `HO_VA_TEN`, `HO`, `TEN`, `TEN_DEM` |
-| `DATE_TIME` | `NGAY`, `NGAY_SINH`, `THANG`, `NAM` |
-| `LOCATION` | `THANH_PHO_TINH`, `QUAN_HUYEN`, `PHUONG_XA`, `DUONG_PHO`, `SO_NHA_TOA_NHA`, `QUOC_GIA` |
-| `ORGANIZATION` | `TEN_TO_CHUC`, `TEN_NGAN_HANG` |
+| `PERSON` | `HO_VA_TEN`, `HO`, `TEN`, `TEN_DEM`, `DANH_XUNG` |
+| `DATE_TIME` | `NGAY`, `NGAY_SINH`, `THANG`, `NAM`, `THOI_GIAN`, `NGAY_CAP`, `HAN_THE_TIN_DUNG` |
+| `LOCATION` | `THANH_PHO_TINH`, `QUAN_HUYEN`, `PHUONG_XA`, `DUONG_PHO`, `SO_NHA_TOA_NHA`, `QUOC_GIA`, `TOA_DO_DIA_LY`, `MA_BUU_CHINH`, `PHUONG_HUONG` |
+| `ORGANIZATION` | `TEN_TO_CHUC`, `TEN_NGAN_HANG`, `LOAI_HINH_TO_CHUC`, `TO_CHUC_CONG_TY_BAO_HIEM`, `TO_CHUC_PHAT_HANH_THE`, `TEN_BENH_VIEN`, `NHA_MANG`, `CO_QUAN_CAP` |
 | `PHONE_NUMBER` | `SO_DIEN_THOAI` |
 | `EMAIL_ADDRESS` | `DIA_CHI_EMAIL` |
-| `BANK_ACCOUNT` | `SO_TAI_KHOAN` |
-| `ID` | `MA_NHAN_VIEN`, `MA_GIAO_DICH`, `MA_SO_THUE`, `SO_CCCD_CMND`, `SO_HO_CHIEU` |
+| `BANK_ACCOUNT` | `SO_TAI_KHOAN`, `MA_BIC_SWIFT_NGAN_HANG` |
+| `ID` | `MA_NHAN_VIEN`, `MA_GIAO_DICH`, `MA_SO_THUE`, `SO_CCCD_CMND`, `SO_HO_CHIEU`, `SO_TAI_LIEU`, `SO_HOP_DONG_MA_SO_CHINH_SACH`, `MA_SINH_VIEN`, `MA_BENH_AN`, `MA_KHACH_HANG`, `SO_GIAY_PHEP_LAI_XE`, `SO_THE_BAO_HIEM_Y_TE`, `SO_AN_SINH_XA_HOI_MA_BHXH`, `MA_IMEI_DIEN_THOAI` |
+| `CREDIT_CARD` | `SO_THE_TIN_DUNG`, `SO_THE`, `MA_BAO_MAT_THE_CVV` |
+| `CRYPTO` | `DIA_CHI_VI_ETHEREUM`, `DIA_CHI_VI_BITCOIN`, `DIA_CHI_VI_LITECOIN` |
+| `IP_ADDRESS` | `DIA_CHI_IP`, `DIA_CHI_IPV4`, `DIA_CHI_IPV6`, `DIA_CHI_MAC` |
+| `URL` | `DUONG_DAN_URL` |
+| `CREDENTIAL` | `MAT_KHAU`, `MA_OTP`, `MA_PIN`, `KHOA_API`, `CHUOI_DINH_DANH_TRINH_DUYET` |
+| `FINANCIAL` | `SO_TIEN`, `MUC_LUONG_THU_NHAP`, `SO_DU`, `XEP_HANG_TIN_DUNG` |
+| `MEDICAL` | `CHAN_DOAN`, `KET_QUA_XET_NGHIEM`, `QUA_TRINH_DIEU_TRI`, `BENH_MAN_TINH`, `DON_THUOC`, `DUNG_THUOC`, `DI_UNG`, `THONG_TIN_DI_TRUYEN`, `NHOM_MAU`, `TINH_TRANG_TIEM_CHUNG`, `TINH_TRANG_THAI_KY`, `THONG_TIN_SUC_KHOE_TAM_THAN`, `TINH_TRANG_KHUYET_TAT`, `CAN_NANG`, `CHIEU_CAO`, `SO_DUOC_CHE_MOT_PHAN` |
+| `VEHICLE` | `BIEN_SO_XE`, `SO_KHUNG_XE`, `LOAI_PHUONG_TIEN`, `HANG_XE` |
+| `USERNAME` | `TEN_NGUOI_DUNG_TAI_KHOAN`, `TEN_TAI_KHOAN` |
+| `NRP` | `TON_GIAO`, `QUOC_TICH`, `GIOI_TINH`, `GIOI_TINH_SINH_HOC`, `THANH_PHAN_XA_HOI`, `TUOI` |
+| `OCCUPATION` | `LINH_VUC_NGHE_NGHIEP`, `CHUC_DANH_CONG_VIEC`, `LOAI_HINH_CONG_VIEC`, `MA_NGHE_NGHIEP` |
+| `EDUCATION` | `TRINH_DO_HOC_VAN`, `HOC_VI` |
+| `PROPERTY` | `TEN_TAI_SAN`, `TAI_SAN`, `SO_DO`, `SO_THUA_DAT` |
 
-Notes:
-- **`MISC`** is in our type set but **no dataset label maps to it** — the verifier may emit `MISC`,
-  but there's no `MISC` ground truth here, so any `MISC` prediction counts as a false positive under
-  mapped-type evaluation.
-- **`TEN_DEM`** is mapped but does not appear in the data (0 occurrences observed) — harmless.
+`NRP` is used broadly here as "sensitive demographic attribute" (nationality, religion, gender,
+biological sex, social class, age).
 
-### Unmapped (88 labels — dropped during mapped-type evaluation)
+### Intentionally dropped (not personal data)
 
-These are real annotations the dataset provides but our 9-type pipeline does not target. They are
-**ignored** by `evaluate_presidio(use_type_mapping=True)` — they neither help nor hurt mapped-type
-metrics (they are not counted as FN for the mapped types). High-frequency examples:
+These denote no individual and are kept out of `pii_spans` (so they are never redacted). The set
+lives in `VI_PII_DROPPED_LABELS` so the omission is a documented decision, not an oversight:
 
-`LOAI_TIEN_TE` (22.7k), `LINH_VUC_NGHE_NGHIEP` (19.1k), `CHUC_DANH_CONG_VIEC` (17.0k),
-`SO_TIEN` (14.3k), `SO_TAI_LIEU` (9.2k), `CHAN_DOAN` (8.6k), `THOI_GIAN` (7.8k),
-`LOAI_HINH_TO_CHUC` (7.8k), `MA_PIN` (7.7k), `DANH_XUNG` (7.5k), `KET_QUA_XET_NGHIEM` (6.8k),
-`CO_QUAN_CAP` (6.8k), `TEN_TAI_SAN` (6.2k), `TAI_SAN` (5.8k), `NGAY_CAP` (5.7k),
-`TOA_DO_DIA_LY` (5.6k) …
+`LOAI_TIEN_TE` (currency type), `TY_GIA_HOI_DOAI` (exchange rate), `NGON_NGU` (language),
+`MUI_GIO` (timezone), `MA_SAN_BAY` (airport code), `MA_GA_TRAM` (station code).
 
-Broad categories of unmapped labels: **money/finance** (`SO_TIEN`, `LOAI_TIEN_TE`, `SO_DU`,
-`MUC_LUONG_THU_NHAP`, `TY_GIA_HOI_DOAI`, `XEP_HANG_TIN_DUNG`), **payment cards**
-(`SO_THE_TIN_DUNG`, `MA_BAO_MAT_THE_CVV`, `HAN_THE_TIN_DUNG`), **health/medical**
-(`CHAN_DOAN`, `BENH_MAN_TINH`, `DON_THUOC`, `NHOM_MAU`, `MA_BENH_AN`, `KET_QUA_XET_NGHIEM`,
-`TINH_TRANG_*`, `DI_UNG`, `THONG_TIN_DI_TRUYEN`), **credentials/digital** (`MAT_KHAU`, `MA_OTP`,
-`MA_PIN`, `KHOA_API`, `DIA_CHI_IP*`, `DIA_CHI_MAC`, `DUONG_DAN_URL`, `DIA_CHI_VI_BITCOIN/ETHEREUM/LITECOIN`,
-`MA_IMEI_DIEN_THOAI`), **job/education** (`CHUC_DANH_CONG_VIEC`, `LINH_VUC_NGHE_NGHIEP`,
-`TRINH_DO_HOC_VAN`, `HOC_VI`), **vehicle** (`BIEN_SO_XE`, `SO_KHUNG_XE`, `HANG_XE`, `LOAI_PHUONG_TIEN`,
-`SO_GIAY_PHEP_LAI_XE`), **demographics** (`GIOI_TINH`, `TUOI`, `QUOC_TICH`, `TON_GIAO`, `NGON_NGU`,
-`CAN_NANG`, `CHIEU_CAO`), plus assorted IDs (`MA_KHACH_HANG`, `MA_SINH_VIEN`, `SO_THUA_DAT`,
-`SO_AN_SINH_XA_HOI_MA_BHXH`, `MA_BUU_CHINH`, …).
+### Detection coverage (important)
 
-> **Evaluation implication:** mapped-type recall is measured **only against mapped labels**, so the
-> headline numbers describe coverage of the 8 target types — not the full PII surface of the dataset.
-> If we later widen scope (e.g. add `CREDIT_CARD`, `IP_ADDRESS`, `MEDICAL`), extend
-> `VI_PII_LABEL_TO_PRESIDIO` and this table together.
+The **evaluator** derives its type set dynamically from this mapping. Recognizers currently cover
+**12 of the 21 types**: the original 8 plus `URL`, `IP_ADDRESS` (IPv4/IPv6/MAC), `CRYPTO`
+(BTC/ETH/LTC), and `CREDIT_CARD` (grouped number + context + CVV) — high-precision regex in
+`CustomPatternRecognizer.build_patterns()`. The remaining **9 new types** (`CREDENTIAL`, `FINANCIAL`,
+`MEDICAL`, `VEHICLE`, `USERNAME`, `NRP`, `OCCUPATION`, `EDUCATION`, `PROPERTY`) have **no detector
+yet**, so detection recall on them is **0** until recognizers are added — read headline detection
+quality on the recognizer-covered subset. The mapping change is primarily for the `safety_v0`
+dataset's redaction completeness and `pii_visible` honesty.
 
 ## Usage
 

@@ -15,7 +15,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
 # Make the repo root importable when run as `python webdemo/app.py`.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,11 +29,14 @@ from src.pipeline.PromptInjection import (  # noqa: E402
     get_prompt_injection_detector,
     list_prompt_injection_detector_names,
 )
+from src.pipeline.Router import build_router_input, get_router  # noqa: E402
+from webdemo import safety_v0_review as review  # noqa: E402
 
 app = Flask(__name__)
 
 DEFAULT_PII_PIPELINE = "regex_recall"
 DEFAULT_PI_DETECTOR = "rule_based_prompt_injection"
+DEFAULT_ROUTER = "gemini_flash"
 
 # One JSONL line per /api/analyze call, for the in-app Log view.
 LOG_PATH = os.path.join(REPO_ROOT, "webdemo", "logs", "demo_requests.jsonl")
@@ -43,6 +46,13 @@ LOG_VIEW_LIMIT = 200
 _pii_pipelines = {}
 _pi_detectors = {}
 _anonymizer = None
+_routers = {}
+
+
+def get_router_cached(name):
+    if name not in _routers:
+        _routers[name] = get_router(name)
+    return _routers[name]
 
 
 def get_pii_pipeline(name):
@@ -203,6 +213,92 @@ def api_log_clear():
     if os.path.exists(LOG_PATH):
         os.remove(LOG_PATH)
     return jsonify({"cleared": True})
+
+
+# ----------------------------- safety_v0 review -----------------------------
+@app.route("/api/review/files", methods=["GET"])
+def api_review_files():
+    """Canonical safety_v0 JSONL files available to review."""
+    return jsonify({"files": review.list_canonical_files()})
+
+
+@app.route("/api/review/rows", methods=["GET"])
+def api_review_rows():
+    """Rows for one file with human overrides applied, plus summary stats."""
+    rel_path = request.args.get("file") or ""
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    rows, stats = review.load_rows(data_file)
+    return jsonify({"file": rel_path, "rows": rows, "stats": stats})
+
+
+@app.route("/api/review/save", methods=["POST"])
+def api_review_save():
+    """Append a human override (labels + review) for one row."""
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    try:
+        record = review.save_override(
+            data_file,
+            input_id,
+            payload.get("labels") or {},
+            payload.get("review") or {},
+            reviewer=payload.get("reviewer"),
+            span_edits=payload.get("span_edits"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"saved": True, "record": record})
+
+
+@app.route("/api/review/run-router", methods=["POST"])
+def api_review_run_router():
+    """Explicitly run the shared VLM safety router on one row (PAID call).
+
+    Fired only by the "Run router" button — never on load. Returns the validated
+    router decision (action + risk flags) so the reviewer can inspect it and, if
+    they choose, copy it into the label form. It does NOT write any labels.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    router_name = payload.get("router") or DEFAULT_ROUTER
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    row = review.get_row(data_file, input_id)
+    if row is None:
+        return jsonify({"error": f"Row {input_id!r} not found."}), 404
+    try:
+        router = get_router_cached(router_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    router_input = build_router_input(row)
+    result = router.route(router_input)
+    return jsonify({
+        "router": router_name,
+        "result": result.to_dict(),
+        "labels": result.to_labels(),
+        "modalities": router_input.get("input_modalities", {}),
+    })
+
+
+@app.route("/api/review/image", methods=["GET"])
+def api_review_image():
+    """Serve an image referenced by a row, constrained to the data root."""
+    image_path = review.resolve_image(request.args.get("path"))
+    if image_path is None:
+        return jsonify({"error": "Image not found."}), 404
+    return send_file(image_path)
 
 
 if __name__ == "__main__":

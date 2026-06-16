@@ -21,6 +21,9 @@ the evaluator takes each dataset's mapping rather than assuming one global dict.
 | `local_vietnamese_mentor_seed` | [local-vietnamese-prompt-injection-mentor-seed.md](local-vietnamese-prompt-injection-mentor-seed.md) | Repo-owned Vietnamese mentor/application-style prompt-injection smoke benchmark. |
 | `local_vietnamese_seed` | [local-vietnamese-prompt-injection-seed.md](local-vietnamese-prompt-injection-seed.md) | Repo-owned Vietnamese binary prompt-injection seed benchmark. |
 | `pii_masking_95k` | [pii-masking-95k.md](pii-masking-95k.md) | Vietnamese synthetic PII, ~95k rows, pre-tokenized, 111 labels (default). |
+| `existing_repo_pii` | [existing_repo_pii.md](existing_repo_pii.md) | safety_v0 source: converts repo PII datasets into canonical safety_v0 rows (PII-only, straight convert). |
+| `webpii` | [webpii.md](webpii.md) | safety_v0 source: English web UI image PII boxes for OCR/redaction and visible PII review. |
+| `local_vi_prompt_injection` | [local_vi_prompt_injection.md](local_vi_prompt_injection.md) | safety_v0 source: converts the local Vietnamese prompt-injection seeds into canonical rows (text-only, gold injection flag, straight convert). |
 
 ## Adding a dataset
 
