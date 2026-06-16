@@ -4,3 +4,4 @@ data/*
 !data/prompt_injection/
 !data/prompt_injection/vietnamese_seed.jsonl
 output/
+webdemo/logs/

@@ -421,3 +421,75 @@ Decision still owned by user: which provider/quant to pin to (they can see price
 - Drop reasons: 3 document/code-field context drops and 1 organization-context drop.
 - Residual risk: this is a deterministic train_val sample and not final reporting; the human audit still needs a manual correctness pass over the four dropped rows in predictions.audit.md.
 - 2026-06-16: Added pluggable prompt-injection detectors with an experimental trainable char-ngram baseline, leave-one-out evaluation support, and detector selection in the prompt-injection CLI/docs. Verified with python3 -m pytest -q tests/test_prompt_injection_detector.py tests/test_prompt_injection_evaluation.py and manual detector comparison on local_vietnamese_seed/local_vietnamese_mentor_seed. Residual risk: the trainable baseline is intentionally weak and current seed datasets are too small and rule-aligned to judge a production model fairly.
+- 2026-06-16: Scoped image anonymization integration requirements for the Presidio-based Vietnamese PII pipeline. Verified current pipeline flow in BasePipeline, VietnamesePipeline, evaluation runner, and checkpoint docs. Residual risk: image path not yet implemented; OCR/box-level evaluation format still needs a concrete dataset choice.
+
+## 2026-06-16 — Demo website (Flask) for the guardrail pipeline
+- Added webdemo/: Flask app (app.py) + single-page UI (templates/index.html) + README.md.
+- Reuses existing seams: get_pipeline()/list_pipeline_names() for PII and get_prompt_injection_detector()/list_prompt_injection_detector_names() for prompt injection. Pipelines/detectors selectable via dropdowns, lazy-loaded and cached (Presidio warm-up). dedupe_exact_spans mirrors demo_pii_checkpoint.py.
+- Endpoints: POST /api/analyze (injection screen then PII+anonymize), /api/prompt-injection, /api/pii. UI highlights PII spans by entity type, shows allow/flag/block verdict + matched rules/categories/evidence, and the anonymized text.
+- Verified live: python -m webdemo.app on :5000; /api/analyze on a mixed sample correctly returns action=block (ignore_previous_instructions + reveal_hidden_prompt) and masks PHONE_NUMBER + EMAIL_ADDRESS; index serves 200.
+- Note: Flask not yet in requirements.txt; was already importable in the active env.
+- 2026-06-16: Added docs/image-safety-pipeline.md with a Mermaid graph and design notes for OCR, PII redaction, VLM safety classification, and fallback routing. Verified the new doc renders structurally via readback and linked it from docs/README.md. Residual risk: this is a design doc only; OCR/redaction/VLM interfaces are not implemented yet.
+- 2026-06-16: Added docs/full-safety-pipeline.md with a Mermaid graph for the combined text and image safety flow, including PII anonymization, VLM classification, and fallback routing. Verified the doc by readback and linked it from docs/README.md. Residual risk: this is still architectural documentation; shared router and multimodal interfaces remain unimplemented.
+- 2026-06-16: Soạn prompt nghiên cứu sâu cho web agent về thiết kế bộ dữ liệu huấn luyện unified model đa nhiệm (PII, prompt injection, topic safety). Xác minh: rà lại yêu cầu user và phạm vi chỉ dừng ở research prompt, chưa thay đổi code. Rủi ro còn lại: cần chốt taxonomy nhãn và tiêu chí ưu tiên giữa OCR-level, page-level, và region-level trước khi thu thập dữ liệu.
+
+## 2026-06-16 — Demo website: request log view + light mode
+- webdemo/app.py: each POST /api/analyze now appends a JSONL record (timestamp, input, PI verdict/score/rules/categories, PII pipeline/entity types/anonymized) to webdemo/logs/demo_requests.jsonl. Added GET /api/log (most-recent-first, capped 200) and DELETE /api/log (clear). Lightweight demo logger, not the eval PredictionJsonlLogger.
+- templates/index.html: switched palette to light mode (GitHub-light tokens). Added Analyze/Log tab nav. Log tab renders collapsible rows with verdict badge, timestamp, snippet, PII count, and full details on expand; Refresh + Clear buttons.
+- .gitignore: ignore webdemo/logs/. README updated with log endpoints + Log view.
+- Verified live on :5001: two analyses logged, GET /api/log returns newest-first with correct block/allow verdicts and masked PHONE/EMAIL; DELETE clears to [].
+
+## 2026-06-16
+- Task: Synthesized dataset-creation reports into a 2-day high-yield plan for the current Vietnamese PII pipeline.
+- Changed: No code changes; planned a text-first weak/gold dataset strategy aligned with existing `source_text` / `privacy_mask` / Presidio entity mappings.
+- Verified: Reviewed the four deepresearch reports plus current dataset/pipeline docs and dataset loader code.
+- Residual risk: Plan still depends on manual review quality and, if implemented later, access to HF-gated datasets/API budget.
+
+## 2026-06-16
+- Task: Corrected dataset/model plan to include mandatory prompt injection detection and topic filtering alongside PII.
+- Changed: No code changes; defined multi-head/masked-loss strategy and model recommendation tradeoffs for PhoBERT/Qwen/LFM-style backbones.
+- Verified: Checked current Hugging Face model cards for LiquidAI/LFM2.5-VL-450M, Qwen/Qwen3-0.6B, and VinAI PhoBERT variants.
+- Residual risk: Final model choice depends on available GPU memory, license constraints, and whether v0 uses OCR text only or rendered page images.
+
+## 2026-06-16
+- Task: Refined safety model plan for image-first moderation after OCR/PII redaction.
+- Changed: No code changes; clarified that the trained model must consume redacted image plus OCR/redaction metadata to catch visual sexual/violence/blood content beyond OCR.
+- Verified: Reasoned against the proposed pipeline and prior model/dataset plan.
+- Residual risk: Final architecture still depends on available compute for VL fine-tuning and quality of rendered/manual image labels.
+
+## 2026-06-16
+- Task: Explained how to train/extract outputs from a vision-language model for multi-head safety routing.
+- Changed: No code changes; clarified generative JSON vs classifier-head approaches, pooling from hidden states, output formats, and mixed image/text sample handling.
+- Verified: Matched the explanation to the proposed Image -> OCR -> Presidio -> redacted image -> safety model pipeline.
+- Residual risk: Exact implementation details will depend on the selected HF model class and available training stack.
+
+## 2026-06-16
+- Task: Documented the shared VLM safety router and updated full/image safety pipeline docs.
+- Changed: Added `docs/vlm-safety-router.md`; revised `docs/full-safety-pipeline.md` so every text/image/mixed artifact goes through the shared VLM router; aligned `docs/image-safety-pipeline.md`; added the router doc to `docs/README.md`.
+- Verified: Scanned docs for stale separate-classifier wording and checked git status for touched files.
+- Residual risk: Documentation only; implementation still needs router interface, JSON validation, dataset loader, and model training code.
+
+## 2026-06-16
+- Task: Revised safety pipeline diagrams to match split-process-merge architecture.
+- Changed: Updated `docs/full-safety-pipeline.md` Mermaid flow so input splits into text/image branches, text and OCR text pass through PII pipelines, image PII boxes are blurred, OCR text is anonymized, then sanitized text/image/metadata merge before the shared VLM router. Updated `docs/image-safety-pipeline.md` similarly.
+- Verified: Re-read the edited Mermaid sections for node flow and stale wording.
+- Residual risk: Mermaid rendering was not compiled visually; docs are untracked in git status and need adding before commit.
+
+## 2026-06-16
+- Added DATA_PLAN.md for safety_v0 dataset construction, including candidate checklist, unified schema, box/span/redaction IDs, prompt-injection weak-label plan, review workflow, and next dataset order.
+- Verified by reading the new plan back with sed. No tests run; docs-only change.
+- Residual risk: candidate dataset schemas/licenses still need source-by-source inspection before converters or downloads.
+
+## 2026-06-16
+- Updated DATA_PLAN.md to make dataset construction pipeline-first: converter, OCR, PII detection/redaction, prompt-injection detection, weak visual/topic labeling, schema validation, then human/API review for uncertain or incorrect fields.
+- Replaced the compact dataset table with per-source work blocks so each source has room for notes, converter outputs, first-pass pipeline steps, human review focus, and completion criteria.
+- Clarified that human review can correct labels, OCR boxes, PII/prompt-injection spans, and redaction metadata, but should not be first-pass labeling from blank samples.
+- Verified by reading the updated DATA_PLAN.md sections back. No tests run; docs-only change.
+- Residual risk: actual dataset schemas, licenses, and sample quality still need source-by-source inspection before converters are implemented.
+
+## 2026-06-16
+- Updated DATA_PLAN.md to list only active v0 dataset sources and removed skipped/later-only sources from the work queue and target mix.
+- Added the safety_v0 project folder structure for download scripts, inspection scripts, converters, OCR/PII/prompt-injection/weak-label stages, review outputs, verified rows, final JSONL files, manifests, and source docs.
+- Updated converter, weak-label, human override, verified, and final dataset paths so converted labels and final verified datasets have clear locations.
+- Verified with rg that removed dataset names and stale interim paths no longer appear. No tests run; docs-only change.
+- Residual risk: folder structure is documented but the actual scripts/schema validator still need to be implemented.
