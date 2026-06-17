@@ -953,3 +953,8 @@ table < redacted, risk-table class + select override present.
 - Re-ran realign (100 rows, 839 aligned spans, down from 894 = 55 free-text fields dropped) + re-redact (100/100). Verified row 000002 now has 0 MISC spans, only LOCATION+PERSON, and James Pena is still redacted.
 - Test: tests/test_run_ocr_webpii_alignment.py::test_align_skips_free_text_misc_fields. Full suite 186 passed, 1 skipped.
 - Doc: docs/datasets/webpii.md documents the free-text MISC skip.
+
+## 2026-06-17 — Redaction policy doc (which entities must be redacted vs ignored)
+- Added docs/redaction-policy.md: an authoritative triage rule for annotation, organized by the 21 ENTITY_TYPES (LLMVerifier.py). Three tiers: MUST (redact every instance: CREDIT_CARD, CREDENTIAL, BANK_ACCOUNT, FINANCIAL, ID=govt/identity numbers, CRYPTO, MEDICAL, PHONE_NUMBER, EMAIL_ADDRESS), CONDITIONAL (redact when it identifies a person: PERSON, LOCATION, USERNAME, IP_ADDRESS, VEHICLE, DATE_TIME=DOB/card-expiry only, NRP, OCCUPATION, EDUCATION, PROPERTY), IGNORE (ORGANIZATION, URL-plain, MISC free-text, order/promo/job codes, qty/price/SKU, generic dates, boilerplate, example values). Includes ambiguity rules (bare numbers by VN context words, names vs brands, addresses, dates, free-text) and a WebPII source-key reference. Linked from docs/README.md.
+- Flagged inconsistency: PII_PO_NUMBER/PII_JOB_CODE/PII_PROMO_CODE currently map to ID (a MUST type) in convert_webpii.py but the policy classifies them as transaction identifiers = IGNORE. Candidate to reclassify/drop; not changed yet (needs user confirm).
+- No code/behavior change in this entry; doc only.
