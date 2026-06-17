@@ -33,7 +33,6 @@ from presidio_anonymizer import AnonymizerEngine  # noqa: E402
 
 from src.pipeline.Datasets.safety_v0_schema import (  # noqa: E402
     new_pii_span,
-    new_redaction,
     validate_row,
 )
 from src.pipeline.Datasets.safety_v0_sources import (  # noqa: E402
@@ -41,8 +40,7 @@ from src.pipeline.Datasets.safety_v0_sources import (  # noqa: E402
     redacted_images_dir,
     redacted_path,
 )
-from src.pipeline.Image.ocr import OcrSegment  # noqa: E402
-from src.pipeline.Image.redaction import image_size, map_span_to_box, redact_image  # noqa: E402
+from src.pipeline.Image.redaction import recompute_redactions  # noqa: E402
 from src.pipeline.Pipelines import get_pipeline  # noqa: E402
 
 
@@ -68,14 +66,6 @@ def _sanitize_from_spans(text: str, spans: List[Dict[str, Any]]) -> str:
         cursor = end
     out.append(text[cursor:])
     return "".join(out)
-
-
-def _segments_from_row(row: Dict[str, Any]) -> List[OcrSegment]:
-    return [
-        OcrSegment(text=b["text"], start=b["start"], end=b["end"], box=b["box"],
-                   confidence=b.get("confidence"))
-        for b in row.get("geometry", {}).get("ocr_boxes", [])
-    ]
 
 
 def _resolve_image(path_str: Optional[str]) -> Optional[Path]:
@@ -108,51 +98,22 @@ def redact_row(
     if not results and not existing_spans:
         return row
 
-    segments = _segments_from_row(row)
-    boxes = [b["box_id"] for b in row["geometry"]["ocr_boxes"]]
-    src_image = _resolve_image(row["content"].get("original_image_path"))
-    size = image_size(src_image) if src_image else None
-
-    pii_spans: List[Dict[str, Any]] = []
-    redactions: List[Dict[str, Any]] = []
-    redaction_boxes: List[List[float]] = []
-
-    for span in existing_spans:
-        rbox = map_span_to_box(span, segments, padding=padding, image_size=size)
-        if rbox is None:
-            continue
-        box_ids = [boxes[j] for j in rbox.segment_indices]
-        redactions.append(
-            new_redaction(
-                f"redact_{len(redactions) + 1:04d}",
-                [span["span_id"]],
-                box_ids,
-                rbox.box,
-                reason="pii",
-                method=method,
-            )
-        )
-        redaction_boxes.append(rbox.box)
-
-    for i, r in enumerate(results, 1):
-        span_id = f"pii_{i:04d}"
-        span = {"start": r.start, "end": r.end}
-        rbox = map_span_to_box(span, segments, padding=padding, image_size=size)
-        box_ids = [boxes[j] for j in rbox.segment_indices] if rbox else []
-        pii_spans.append(
-            new_pii_span(span_id, r.entity_type, r.start, r.end, ocr_text[r.start:r.end],
-                         round(float(r.score), 4), box_ids, detector="presidio")
-        )
-        if rbox is not None:
-            redactions.append(
-                new_redaction(f"redact_{len(redactions) + 1:04d}", [span_id], box_ids, rbox.box,
-                              reason="pii", method=method)
-            )
-            redaction_boxes.append(rbox.box)
-
-    combined_spans = existing_spans + pii_spans
+    new_spans = [
+        new_pii_span(f"pii_{i:04d}", r.entity_type, r.start, r.end, ocr_text[r.start:r.end],
+                     round(float(r.score), 4), [], detector="presidio")
+        for i, r in enumerate(results, 1)
+    ]
+    combined_spans = existing_spans + new_spans
     row["detections"]["pii_spans"] = combined_spans
-    row["detections"]["redaction_metadata"] = redactions
+
+    # Shared core: map every span -> OCR boxes, build redaction metadata, render.
+    src_image = _resolve_image(row["content"].get("original_image_path"))
+    images_dir.mkdir(parents=True, exist_ok=True)
+    dst = images_dir / f"{row['input_id']}_redacted.png"
+    result = recompute_redactions(row, src_image=src_image, dst_path=dst,
+                                  method=method, padding=padding)
+    row["detections"]["redaction_metadata"] = result["redaction_metadata"]
+
     if existing_spans:
         row["content"]["sanitized_ocr_text"] = _sanitize_from_spans(ocr_text, combined_spans)
     else:
@@ -161,9 +122,6 @@ def redact_row(
         ).text
 
     if src_image is not None:
-        images_dir.mkdir(parents=True, exist_ok=True)
-        dst = images_dir / f"{row['input_id']}_redacted.png"
-        redact_image(src_image, dst, redaction_boxes, method=method)
         try:
             rel = dst.relative_to(PROJECT_ROOT).as_posix()
         except ValueError:

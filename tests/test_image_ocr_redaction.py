@@ -17,6 +17,7 @@ from src.pipeline.Image.redaction import (
     image_size,
     map_span_to_box,
     map_spans_to_boxes,
+    recompute_redactions,
     redact_image,
 )
 
@@ -102,6 +103,19 @@ def test_map_span_merges_multiple_segments_with_padding_and_clamp():
     assert box.box == [17, 0, 60, 17]
 
 
+def test_map_span_clips_partial_selection_within_one_box():
+    # OCR line box covers chars [0,21] across pixels x in [10,180]; select "2522"
+    # (chars 10..14) -> only the proportional horizontal slice is redacted, y kept.
+    segs = [OcrSegment("ending in 2522 Change", 0, 21, [10, 10, 180, 30])]
+    box = map_span_to_box({"start": 10, "end": 14}, segs, padding=0)
+    assert box.segment_indices == [0]
+    x0, y0, x1, y1 = box.box
+    assert y0 == 10 and y1 == 30                      # full line height
+    assert abs(x0 - (10 + 10 / 21 * 170)) < 1e-6      # left edge at char 10
+    assert abs(x1 - (10 + 14 / 21 * 170)) < 1e-6      # right edge at char 14
+    assert 10 < x0 < x1 < 180                          # strictly inside the box
+
+
 def test_map_span_no_overlap_returns_none():
     assert map_span_to_box({"start": 100, "end": 110}, _segments()) is None
 
@@ -146,6 +160,56 @@ def test_redact_image_bad_method(tmp_path):
     _make_image(src)
     with pytest.raises(ValueError):
         redact_image(src, tmp_path / "x.png", [], method="pixelate")
+
+
+# --- recompute_redactions (shared core: batch + webdemo live preview) --------
+def test_recompute_redactions_maps_span_and_human_box(tmp_path):
+    from src.pipeline.Datasets.safety_v0_schema import new_ocr_box, new_pii_span, new_row
+
+    src = tmp_path / "doc.png"
+    _make_image(src)
+    row = new_row(
+        "safety_v0_demo_000077", "demo/webpii",
+        has_image=True, has_ocr=True,
+        original_image_path=str(src),
+        ocr_text="So dien thoai 0987654321",
+    )
+    row["geometry"]["ocr_boxes"] = [
+        new_ocr_box("box_0004", "0987654321", 14, 24, [0, 20, 120, 34], 0.9),
+    ]
+    # One OCR-aligned span (box_ids start empty -> filled by recompute) and one
+    # human image-drawn box with no OCR offsets.
+    row["detections"]["pii_spans"] = [
+        new_pii_span("p1", "PHONE_NUMBER", 14, 24, "0987654321", 1.0, [], detector="human"),
+    ]
+    row["geometry"]["source_pii_boxes"] = [
+        {"box_id": "hb1", "entity_type": "PERSON", "text": "", "box": [5, 5, 40, 15], "detector": "human"},
+    ]
+
+    out = tmp_path / "red.png"
+    result = recompute_redactions(row, src_image=src, dst_path=out, method="fill")
+
+    # span got its box_ids filled from the overlapping OCR box
+    assert row["detections"]["pii_spans"][0]["box_ids"] == ["box_0004"]
+    # two regions: the span and the human image box
+    kinds = {(r["entity_type"], r["detector"], bool(r["box_ids"])) for r in result["regions"]}
+    assert ("PHONE_NUMBER", "human", True) in kinds
+    assert ("PERSON", "human", False) in kinds
+    assert len(result["redaction_metadata"]) == 2
+    assert out.exists()
+
+
+def test_recompute_redactions_no_image_skips_render(tmp_path):
+    from src.pipeline.Datasets.safety_v0_schema import new_ocr_box, new_pii_span, new_row
+
+    row = new_row("x", "demo/webpii", has_image=True, has_ocr=True,
+                  original_image_path="missing.png", ocr_text="abc 0987654321")
+    row["geometry"]["ocr_boxes"] = [new_ocr_box("box_0001", "0987654321", 4, 14, [0, 0, 50, 10], 0.9)]
+    row["detections"]["pii_spans"] = [new_pii_span("p1", "PHONE_NUMBER", 4, 14, "0987654321", 1.0, [])]
+    out = tmp_path / "none.png"
+    result = recompute_redactions(row, src_image=None, dst_path=out, method="fill")
+    assert not out.exists()  # no source image -> nothing rendered
+    assert result["regions"][0]["box_ids"] == ["box_0001"]
 
 
 # --- end-to-end stage scripts on a synthetic row -----------------------------

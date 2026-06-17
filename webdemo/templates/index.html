@@ -168,7 +168,7 @@
   .risk-table th:nth-child(4), .risk-table td:nth-child(4) { width: 7%; }
   /* index badge on an image PII box, cross-referenced in the boxes table */
   .box-rect .box-tag {
-    position: absolute; top: 0; left: 0; background: var(--green); color: #fff;
+    position: absolute; top: 0; left: 0; background: var(--accent); color: #fff;
     font-size: 9px; line-height: 1; padding: 1px 3px; border-radius: 0 0 3px 0; font-weight: 700;
   }
   .step {
@@ -205,9 +205,11 @@
   .imgwrap.drawing { cursor: crosshair; }
   .box-layer { position: absolute; inset: 0; }
   .box-rect {
-    position: absolute; border: 2px solid var(--green); background: rgba(26,127,55,.14);
-    border-radius: 3px; font-size: 9px; color: var(--green); font-weight: 700;
+    position: absolute; border: 2px solid var(--accent); background: rgba(9,105,218,.12);
+    border-radius: 3px; font-size: 9px; color: var(--accent); font-weight: 700;
   }
+  .box-rect.box-human { border: 2px dashed var(--green); background: rgba(26,127,55,.14); color: var(--green); }
+  .box-rect.box-human .box-tag { background: var(--green); }
   .box-rect .box-del {
     position: absolute; top: -10px; right: -10px; width: 18px; height: 18px;
     border-radius: 50%; background: var(--red); color: #fff; border: none; cursor: pointer;
@@ -644,6 +646,7 @@ function addTextSpan(row, collection, typeField, type, start, end, text) {
   });
   if (collection === "pii_spans") recomputeSanitized(row);
   renderReview();
+  if (collection === "pii_spans") scheduleRecompute(row);
 }
 
 function deleteSpan(row, collection, typeField, span) {
@@ -660,6 +663,7 @@ function deleteSpan(row, collection, typeField, span) {
   }
   if (collection === "pii_spans") recomputeSanitized(row);
   renderReview();
+  if (collection === "pii_spans") scheduleRecompute(row);
 }
 
 function addBox(row, type, box) {
@@ -668,6 +672,7 @@ function addBox(row, type, box) {
   g.source_pii_boxes = g.source_pii_boxes || [];
   g.source_pii_boxes.push({ box_id: `pending_box_${++pendingCounter}`, entity_type: type, text: "", box, detector: "human" });
   renderReview();
+  scheduleRecompute(row);
 }
 
 function deleteBox(row, boxObj) {
@@ -682,6 +687,7 @@ function deleteBox(row, boxObj) {
     e.boxes.deleted.push(boxObj.box_id);
   }
   renderReview();
+  scheduleRecompute(row);
 }
 
 // ---- rendering: left = top-down steps ----
@@ -770,7 +776,7 @@ function renderReviewSteps(row) {
   }
 
   if (m.has_image && c.original_image_path) {
-    const boxes = g.source_pii_boxes || [];
+    const regions = currentRegions(row);  // spans+human boxes mapped to pixels
 
     // Image with detection bounding boxes (numbered), draggable to add.
     const imgBody = `<div class="imgwrap">` +
@@ -778,27 +784,34 @@ function renderReviewSteps(row) {
       `style="display:block; max-width:100%; max-height:78vh; width:auto; height:auto" ` +
       `onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'empty',textContent:'image not found'}))">` +
       `<div class="box-layer"></div></div>` +
-      `<p class="muted" style="font-size:11.5px; margin:6px 0 0">${boxes.length} PII box(es) · drag on the image to add one</p>`;
+      `<p class="muted" style="font-size:11.5px; margin:6px 0 0">${regions.length} PII region(s) · drag on the image to add one</p>`;
     steps.push(stepCard(n++, "Image — detection boxes", "drag to box a missed PII region", imgBody));
 
-    // Box id ↔ corresponding OCR text (numbers match the badges on the image).
-    if (boxes.length) {
-      let t = `<table><tr><th>#</th><th>Box id</th><th>Type</th><th>Text</th><th>From</th></tr>`;
-      boxes.forEach((b, i) => {
-        t += `<tr class="${b.detector === 'human' ? 'human-row' : ''}"><td class="mono">${i + 1}</td>` +
-          `<td class="mono">${escapeHtml(b.box_id || "")}</td>` +
-          `<td><span class="tag">${escapeHtml(b.entity_type || "")}</span></td>` +
-          `<td class="mono">${escapeHtml(b.text || "")}</td>` +
-          `<td class="mono">${escapeHtml(b.detector || "source")}</td></tr>`;
+    // Region ↔ OCR text (numbers match the badges on the image), derived live
+    // from the current spans + human boxes — what actually gets redacted.
+    if (regions.length) {
+      let t = `<table><tr><th>#</th><th>Type</th><th>Text</th><th>OCR box ids</th><th>From</th></tr>`;
+      regions.forEach((r, i) => {
+        const prov = detectorProv(r.detector);
+        t += `<tr class="${prov === 'human' ? 'human-row' : ''}"><td class="mono">${i + 1}</td>` +
+          `<td><span class="tag">${escapeHtml(r.type || "")}</span></td>` +
+          `<td class="mono">${escapeHtml(r.text || "")}</td>` +
+          `<td class="mono">${escapeHtml(r.box_ids.join(", ") || (r.kind === "box" ? "(image box)" : "—"))}</td>` +
+          `<td><span class="prov prov-${prov}">${PROV_TEXT[prov]}</span></td></tr>`;
       });
-      steps.push(stepCard(n++, "Boxes ↔ OCR text", "each detection box and the text it covers", t + `</table>`));
+      steps.push(stepCard(n++, "Boxes ↔ OCR text", "each detection region and the text it covers", t + `</table>`));
     }
 
-    // Redacted image (PII regions masked).
-    if (c.redacted_image_path && c.redacted_image_path !== c.original_image_path) {
-      const rb = `<img style="display:block; max-width:min(100%,900px); max-height:78vh; width:auto; border:1px solid var(--border); border-radius:8px" ` +
-        `src="/api/review/image?path=${encodeURIComponent(c.redacted_image_path)}" ` +
-        `onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'empty',textContent:'no redacted image'}))">`;
+    // Redacted image (PII regions masked). Uses the live preview after an edit,
+    // else the baked redacted image. Cache-busted so each recompute reloads.
+    const redPath = row._previewRedacted || (c.redacted_image_path && c.redacted_image_path !== c.original_image_path ? c.redacted_image_path : null);
+    if (redPath) {
+      const bust = row._previewRedacted ? `&t=${row._previewTick || 0}` : "";
+      const note = row._recomputing ? `<span class="muted" style="font-size:11px">· recomputing…</span>` : "";
+      const rb = `<img style="display:block; max-width:min(100%,900px); max-height:78vh; width:auto; border:1px solid var(--border); border-radius:8px${row._recomputing ? "; opacity:.55" : ""}" ` +
+        `src="/api/review/image?path=${encodeURIComponent(redPath)}${bust}" ` +
+        `onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'empty',textContent:'no redacted image'}))">` +
+        `<p class="muted" style="font-size:11.5px; margin:6px 0 0">${row._previewRedacted ? "live preview" : "baked"} ${note}</p>`;
       steps.push(stepCard(n++, "Redacted image", "PII regions masked", rb));
     }
   }
@@ -933,28 +946,92 @@ function attachImageAnnotation(wrap, row) {
   });
 }
 
+// Horizontally clip one OCR box to a span's character sub-range, so selecting
+// part of a line redacts only that slice. Mirrors redaction._clip_segment_box.
+function clipBoxToChars(b, s, e) {
+  const bb = b.box, cs = b.start, ce = b.end, width = ce - cs;
+  const os = Math.max(s, cs), oe = Math.min(e, ce);
+  if (width <= 0 || oe <= os) return [bb[0], bb[1], bb[2], bb[3]];
+  const f0 = (os - cs) / width, f1 = (oe - cs) / width;
+  return [bb[0] + f0 * (bb[2] - bb[0]), bb[1], bb[0] + f1 * (bb[2] - bb[0]), bb[3]];
+}
+
+// Map a PII span to its merged OCR-box rectangle (char-offset overlap, each box
+// clipped to the selected sub-range), mirroring the backend's map_span_to_box so
+// the overlay matches the redacted output without a round-trip.
+function spanBoxes(span, ocrBoxes) {
+  const s = span.start, e = span.end;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, ids = [], found = false;
+  for (const b of ocrBoxes) {
+    if (!(s < b.end && b.start < e)) continue;  // half-open overlap
+    const bb = b.box; if (!bb || bb.length !== 4) continue;
+    found = true; if (b.box_id) ids.push(b.box_id);
+    const c = clipBoxToChars(b, s, e);
+    x0 = Math.min(x0, c[0]); y0 = Math.min(y0, c[1]);
+    x1 = Math.max(x1, c[2]); y1 = Math.max(y1, c[3]);
+  }
+  return found ? { box: [x0, y0, x1, y1], box_ids: ids } : null;
+}
+
+// Unified, ordered list of redactable regions for the image steps, derived from
+// the row's own editable state (single source of truth): every PII span mapped
+// to OCR boxes, plus human image-drawn boxes (which have no OCR offsets). The
+// order is shared by the overlay badges and the step-6 table so they cross-ref.
+function currentRegions(row) {
+  const g = row.geometry || {}, d = row.detections || {};
+  const ocr = g.ocr_boxes || [];
+  const regions = [];
+  for (const sp of d.pii_spans || []) {
+    const m = spanBoxes(sp, ocr);
+    if (!m) continue;
+    regions.push({
+      type: sp.entity_type, text: sp.text || "", box: m.box, box_ids: m.box_ids,
+      detector: sp.detector, kind: "span", ref: sp,
+    });
+  }
+  for (const hb of g.source_pii_boxes || []) {
+    if (hb.detector !== "human") continue;  // source PII already covered via spans
+    const bx = hb.box; if (!bx || bx.length !== 4) continue;
+    regions.push({
+      type: hb.entity_type, text: hb.text || "", box: bx, box_ids: [],
+      detector: "human", kind: "box", ref: hb,
+    });
+  }
+  return regions;
+}
+
+// detector -> provenance bucket (source / you / weak-auto).
+function detectorProv(det) {
+  if (det === "human") return "human";
+  if (det && det.startsWith("source")) return "source";
+  return "weak";
+}
+
 function placeBoxes(layer, img, row) {
   layer.innerHTML = "";
-  const boxes = (row.geometry || {}).source_pii_boxes || [];
+  const regions = currentRegions(row);
   const nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
-  boxes.forEach((b, i) => {
-    const bx = b.box || [];
-    if (bx.length !== 4) return;
+  regions.forEach((r, i) => {
+    const bx = r.box;
     const el = document.createElement("div");
-    el.className = "box-rect";
+    el.className = "box-rect" + (r.detector === "human" ? " box-human" : "");
     el.style.left = (bx[0] / nw * 100) + "%";
     el.style.top = (bx[1] / nh * 100) + "%";
     el.style.width = ((bx[2] - bx[0]) / nw * 100) + "%";
     el.style.height = ((bx[3] - bx[1]) / nh * 100) + "%";
-    el.title = `#${i + 1} ${b.entity_type || ""}${b.text ? ": " + b.text : ""}${b.detector === "human" ? " ·you" : ""}`;
+    el.title = `#${i + 1} ${r.type || ""}${r.text ? ": " + r.text : ""}${r.detector === "human" ? " ·you" : ""}`;
     const tag = document.createElement("span");
     tag.className = "box-tag";
     tag.textContent = i + 1;  // matches the "Boxes ↔ OCR text" table row
     el.appendChild(tag);
-    if (b.detector === "human") {
+    if (r.detector === "human") {  // human items are deletable from the image
       const del = document.createElement("button");
       del.className = "box-del"; del.textContent = "×";
-      del.onclick = (ev) => { ev.stopPropagation(); deleteBox(row, b); };
+      del.onclick = (ev) => {
+        ev.stopPropagation();
+        if (r.kind === "span") deleteSpan(row, "pii_spans", "entity_type", r.ref);
+        else deleteBox(row, r.ref);
+      };
       el.appendChild(del);
     }
     layer.appendChild(el);
@@ -1037,6 +1114,10 @@ function renderReviewSide(row) {
       `<option value="${s}" ${rv.status === s ? "selected" : ""}>${s}</option>`).join("") + `</select>`;
   html += `<div class="sub" style="margin-top:12px">Notes</div><textarea id="rv-notes" style="min-height:54px">${escapeHtml(rv.notes || "")}</textarea>`;
   html += `<div class="controls" style="margin-top:12px"><button class="primary" id="rv-save">Save</button><span id="rv-saved" class="muted"></span></div>`;
+  if ((row.modality || {}).has_image) {
+    html += `<div class="controls" style="margin-top:6px"><button class="ghost" id="rv-recompute">Re-run redaction</button>` +
+      `<span class="muted" style="font-size:11px; text-transform:none">${row._recomputing ? "recomputing…" : "updates the image + redacted steps from current spans"}</span></div>`;
+  }
 
   html += `<div class="sub" style="margin-top:14px">VLM router <span class="muted" style="text-transform:none">(paid call)</span></div>`;
   html += `<div class="controls" style="margin:4px 0"><button class="ghost" id="rv-router">Run router</button>` +
@@ -1047,6 +1128,43 @@ function renderReviewSide(row) {
   $("review-side").innerHTML = html;
   $("rv-save").onclick = () => saveReview(row);
   $("rv-router").onclick = () => runRouter(row);
+  const recomputeBtn = $("rv-recompute");
+  if (recomputeBtn) recomputeBtn.onclick = () => recomputeRow(row);
+}
+
+// ---- live redaction recompute (preview image only; writes nothing) ----
+let recomputeTimer = null, recomputeSeq = 0;
+function scheduleRecompute(row) {
+  if (!(row.modality || {}).has_image) return;  // text-only rows: nothing to render
+  clearTimeout(recomputeTimer);
+  recomputeTimer = setTimeout(() => recomputeRow(row), 400);
+}
+
+async function recomputeRow(row) {
+  if (!(row.modality || {}).has_image) return;
+  clearTimeout(recomputeTimer);
+  const seq = ++recomputeSeq;
+  row._recomputing = true;
+  renderReview();  // show the "recomputing…" state
+  try {
+    const res = await fetch("/api/review/recompute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: reviewState.file, input_id: row.input_id, span_edits: rowEdits(row) }),
+    });
+    const data = await res.json();
+    if (seq !== recomputeSeq) return;  // a newer recompute superseded this one
+    if (res.ok && data.redacted_image_path) {
+      row._previewRedacted = data.redacted_image_path;
+      row._previewTick = (row._previewTick || 0) + 1;
+    }
+  } catch (e) {
+    /* leave the previous preview in place on error */
+  }
+  if (seq === recomputeSeq) {
+    row._recomputing = false;
+    renderReview();
+  }
 }
 
 async function runRouter(row) {

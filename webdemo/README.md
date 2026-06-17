@@ -30,6 +30,7 @@ loaded lazily, and cached after first use.
 - `GET /api/review/rows?file=<rel path>` — rows for one file with human overrides applied, plus stats.
 - `POST /api/review/save` — `{file, input_id, labels, review, span_edits?}` → appends a human override. `span_edits` (optional) adds/deletes human detections: `{pii_spans:{added,deleted}, prompt_injection_spans:{added,deleted}, boxes:{added,deleted}}`.
 - `GET /api/review/image?path=<rel path>` — serves a row's image (constrained to the data root).
+- `POST /api/review/recompute` — `{file, input_id, span_edits?}` → re-maps the row's current PII spans (incl. unsaved human edits) to OCR boxes, redacts human image boxes, renders a throwaway redacted **preview** under `data/safety_v0/review/preview/<input_id>.png`, and returns `{regions, pii_spans, redacted_image_path}`. Writes no labels/overrides. Free (no LLM/OCR — deterministic Pillow render).
 - `POST /api/review/run-router` — `{file, input_id, router?}` → runs the shared VLM safety router on one row (PAID; fired only by the button) and returns `{result, labels, modalities}`. Writes no labels.
 
 ## Annotate view (safety_v0 review)
@@ -54,10 +55,23 @@ The steps are not read-only — you can fix detections the pipeline missed:
 - **Text spans:** select any substring in the **Input text** or **OCR text**
   step; a popover lets you add it as a **PII span** (entity type from the
   canonical 21-type taxonomy) or a **prompt-injection span** (attack type).
-  Each span row has a `×` to delete it.
+  Each span row has a `×` to delete it. On the OCR text, selecting only part of
+  an OCR line box (e.g. 2-3 words) redacts just that slice: the matched box is
+  clipped horizontally to the selected characters (proportional, single-line
+  assumption) rather than masking the whole line.
 - **Image boxes:** in the **Image** step, drag a rectangle over a missed PII
   region and pick a type; the box is stored in `geometry.source_pii_boxes`
   (coords normalized to the image's natural size) and can be deleted.
+
+The image steps derive from a single source of truth — the row's `pii_spans`
+mapped to OCR boxes plus human image boxes — so the "Image — detection boxes"
+overlay and the "Boxes ↔ OCR text" table always reflect what actually gets
+redacted (source-aligned spans render blue, your additions dashed-green). When a
+span changes, the box overlay updates instantly client-side and the **Redacted
+image** step refreshes from a live `/api/review/recompute` preview (debounced
+~0.4 s; a **Re-run redaction** button in the sidebar forces it). The preview is
+throwaway and writes nothing — on **Save** the edits persist as a span override
+and baking still happens offline via `run_pii_redaction.py`.
 
 Human-added items carry `detector="human"` (distinct from `source_gold` / the
 pipeline) and render with a dashed green outline. Adding or removing a **PII**

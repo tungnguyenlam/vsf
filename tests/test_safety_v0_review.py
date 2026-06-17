@@ -272,6 +272,65 @@ def test_span_edit_idempotent_on_reapply(span_sandbox):
     assert len(human) == 1
 
 
+@pytest.fixture
+def image_sandbox(tmp_path, monkeypatch):
+    """A sandbox whose row is an image row with OCR text + boxes and a real PNG."""
+    from PIL import Image
+
+    from src.pipeline.Datasets.safety_v0_schema import new_ocr_box
+
+    root = tmp_path / "safety_v0"
+    img_dir = root / "ocr" / "webpii" / "images"
+    img_dir.mkdir(parents=True)
+    Image.new("RGB", (200, 60), "white").save(img_dir / "x.png")
+    data_file = root / "ocr" / "webpii" / "ocr.jsonl"
+    row = new_row(
+        "safety_v0_webpii_000001", "WebPII/webpii", has_image=True, has_ocr=True,
+        original_image_path="safety_v0/ocr/webpii/images/x.png",
+        ocr_text="ending in 2522 Change",
+    )
+    row["geometry"]["ocr_boxes"] = [
+        new_ocr_box("box_0001", "ending in 2522 Change", 0, 21, [10, 10, 180, 30], 0.99),
+    ]
+    data_file.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    def fake_shared_dir(kind, *, root=None, create=False):
+        target = data_file.parents[2] / kind
+        if create:
+            target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    monkeypatch.setattr(review, "DATA_ROOT", root)
+    monkeypatch.setattr(review, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review, "shared_dir", fake_shared_dir)
+    return tmp_path, root, data_file
+
+
+def test_recompute_row_maps_human_span_and_writes_preview(image_sandbox):
+    tmp_path, root, data_file = image_sandbox
+    s = "ending in 2522 Change".index("2522")
+    edits = {"pii_spans": {"added": [
+        {"entity_type": "CREDIT_CARD", "start": s, "end": s + 4, "text": "2522"}]}}
+    result = review.recompute_row(data_file, "safety_v0_webpii_000001", edits)
+
+    human = [r for r in result["regions"] if r["detector"] == "human"]
+    assert len(human) == 1
+    assert human[0]["entity_type"] == "CREDIT_CARD"
+    assert human[0]["box_ids"] == ["box_0001"]  # mapped to the OCR line box
+    # preview written under the data root and nothing persisted to overrides
+    assert result["redacted_image_path"] == "safety_v0/review/preview/safety_v0_webpii_000001.png"
+    assert (root / "review" / "preview" / "safety_v0_webpii_000001.png").exists()
+    # nothing persisted: the per-source override file was never written
+    assert not review.override_path_for(data_file).exists()
+
+
+def test_recompute_row_baseline_no_edits(image_sandbox):
+    _, _, data_file = image_sandbox
+    result = review.recompute_row(data_file, "safety_v0_webpii_000001", None)
+    assert result["regions"] == []  # no spans yet -> nothing to box
+    assert result["redacted_image_path"].endswith("safety_v0_webpii_000001.png")
+
+
 def test_clean_span_edits_rejects_bad_input(span_sandbox):
     _, _, data_file = span_sandbox
     with pytest.raises(ValueError):  # end past text length

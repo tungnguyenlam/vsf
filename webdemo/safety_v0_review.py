@@ -30,6 +30,7 @@ from src.pipeline.Datasets.safety_v0_sources import (
     list_source_slugs,
     shared_dir,
 )
+from src.pipeline.Image.redaction import recompute_redactions
 
 DATA_ROOT = DEFAULT_DATA_ROOT
 
@@ -473,3 +474,42 @@ def save_override(
     with open(out_path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     return record
+
+
+def recompute_row(
+    data_file: Path,
+    input_id: str,
+    span_edits: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Re-derive box mappings + a redacted preview for one row, live.
+
+    Applies the in-flight (unsaved) ``span_edits`` on top of the row's persisted
+    state, maps every PII span to OCR boxes, redacts human image boxes, and
+    renders a throwaway preview image under ``data/safety_v0/review/preview/``.
+    Writes nothing to the canonical or override JSONL — the preview is only used
+    by the Annotate tab so edits propagate to the image + redacted steps live.
+
+    Returns ``{regions, pii_spans, redacted_image_path}``. ``redacted_image_path``
+    is repo-root-relative (servable via ``/api/review/image``) or ``None`` when
+    the row has no resolvable source image.
+    """
+    row = get_row(data_file, input_id)
+    if row is None:
+        raise ValueError(f"Row {input_id!r} not found.")
+    clean_edits = clean_span_edits(span_edits, row)
+    row = _merge_span_edits(row, clean_edits)
+
+    src_image = resolve_image((row.get("content") or {}).get("original_image_path"))
+    preview_dir = DATA_ROOT / "review" / "preview"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    dst = preview_dir / f"{input_id}.png"
+    result = recompute_redactions(row, src_image=src_image, dst_path=dst, method="blur")
+
+    redacted_rel = None
+    if src_image is not None:
+        redacted_rel = dst.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    return {
+        "regions": result["regions"],
+        "pii_spans": result["pii_spans"],
+        "redacted_image_path": redacted_rel,
+    }

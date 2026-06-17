@@ -281,5 +281,44 @@ re-enable oneDNN on a paddle build where it does not crash (e.g.
 `paddlepaddle==3.0.0`).
 
 The full 100-row sample has been run end to end: `ocr.jsonl` (100/100 rows with
-OCR text + word boxes) and `redacted.jsonl` (90/100 rows with aligned source PII
-spans + redacted images), both validating 100/100.
+OCR text + word boxes) and `redacted.jsonl` (100/100 rows with aligned source
+PII spans + redacted images), both validating 100/100.
+
+## Source-box ↔ OCR alignment coverage
+
+`run_ocr.py` aligns each WebPII source PII box to OCR boxes by area overlap. A
+match is accepted when **either** the OCR box is mostly inside the source box
+(`--min-ocr-coverage`, default 0.5 — a wide field containing OCR words) **or**
+the source box is mostly inside the OCR box (`--min-source-coverage`, default
+0.6 — a tight PII token the OCR merged into a wider line, e.g. a card last-4
+inside "ending in 2522 Change"). Before the second criterion, sub-token PII like
+the card last-4 scored ~0.15 OCR-coverage and was silently dropped (detected but
+never redacted).
+
+**Span narrowing.** A matched OCR box can be much wider than the PII (OCR merges
+a name into a whole block, e.g. "FREE Two-Day Shipping on this Order: Alexa
+Copeland, you can save ..."). The aligned span's char range is therefore narrowed
+to where the source text occurs inside the matched window (whitespace-flexible
+regex; `_narrow_to_source_text`), and `box_ids` are trimmed to the boxes that
+narrowed range still overlaps. Redaction then clips the pixel box horizontally to
+that character sub-range (`_clip_segment_box`), so only the PII slice is masked,
+not the whole line — e.g. a 583px OCR block redacts ~99px at the name. When the
+source text is not found in the window, the span keeps the full box (the safe,
+over-redacting fallback); reviewers can delete or re-draw it in the Annotate tab.
+
+**Free-text MISC fields are not redacted.** `PII_GIFT_MESSAGE` and
+`PII_DELIVERY_INSTRUCTIONS` map to MISC (whole personalized free-text). Their only
+real PII — the recipient name and shipping address — is already captured by
+dedicated boxes (`PII_GIFT_FULLNAME`, street/city/state/country/postcode), and
+OCR often reads across columns so the message text interleaves the address and
+can't be narrowed. To avoid masking the entire message (e.g. "lovely birthstone
+earrings"), `align_source_pii_spans` skips source boxes whose key is in
+`NON_REDACTABLE_SOURCE_KEYS` (`run_ocr.py`); the box stays in `source_pii_boxes`
+for the record but yields no redaction span. A reviewer can still box it manually.
+
+To re-align an already-OCR'd file in seconds (no re-OCR) after a coverage change:
+
+```bash
+python scripts/safety_v0/run_ocr.py --slug webpii --realign
+python scripts/safety_v0/run_pii_redaction.py --slug webpii
+```

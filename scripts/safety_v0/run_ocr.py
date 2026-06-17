@@ -35,6 +35,19 @@ from src.pipeline.Image.ocr import get_ocr_adapter  # noqa: E402
 
 SOURCE_PII_ALIGNMENT_DETECTOR = "source_webpii_ocr_alignment"
 
+# Free-text WebPII fields the converter maps to MISC (see convert_webpii.py:
+# map_webpii_key_to_presidio). They hold a whole personalized message/instruction
+# whose only real PII (name, address) is already captured by dedicated boxes, so
+# redacting the entire field over-masks non-PII text. We keep the source box for
+# the record but do not turn it into a redaction span. Numeric copy suffixes are
+# stripped before the membership check.
+NON_REDACTABLE_SOURCE_KEYS = {"PII_GIFT_MESSAGE", "PII_DELIVERY_INSTRUCTIONS"}
+
+
+def _source_key_base(source_box: Dict[str, Any]) -> str:
+    key = str(source_box.get("source_key") or "").upper()
+    return re.sub(r"\d+$", "", key)
+
 
 def _resolve_image(path_str: Optional[str]) -> Optional[Path]:
     if not path_str:
@@ -68,6 +81,19 @@ def _ocr_coverage(source_box: Sequence[float], ocr_box: Sequence[float]) -> floa
     return _intersection_area(source_box, ocr_box) / denom
 
 
+def _source_coverage(source_box: Sequence[float], ocr_box: Sequence[float]) -> float:
+    """Fraction of the *source* PII box that an OCR box covers.
+
+    Complements :func:`_ocr_coverage`: a tight source box (e.g. a card last-4)
+    sitting inside a wide OCR line box has low OCR-coverage but ~full
+    source-coverage, so this catches sub-token PII the OCR tokenizes into a line.
+    """
+    denom = _area(source_box)
+    if denom <= 0:
+        return 0.0
+    return _intersection_area(source_box, ocr_box) / denom
+
+
 def _norm_text(text: str) -> str:
     text = re.sub(r"\s+", " ", str(text).casefold()).strip()
     return re.sub(r"[^\w @.+-]+", "", text)
@@ -86,20 +112,27 @@ def source_box_ocr_matches(
     ocr_boxes: Sequence[Dict[str, Any]],
     *,
     min_ocr_coverage: float = 0.5,
+    min_source_coverage: float = 0.6,
 ) -> List[Dict[str, Any]]:
     """Return OCR boxes geometrically inside one WebPII source PII box.
 
-    WebPII gives UI element boxes, while OCR gives word/line boxes. Matching by
-    OCR-box coverage works for both single-token fields and OCR segments nested
-    inside larger input fields. Text compatibility is used as a precision boost,
-    but geometry still wins when OCR text is noisy.
+    WebPII gives UI element boxes, while OCR gives word/line boxes. A match is
+    accepted when EITHER the OCR box is mostly inside the source box
+    (``min_ocr_coverage`` — large field containing OCR words) OR the source box
+    is mostly inside the OCR box (``min_source_coverage`` — a tight PII token the
+    OCR merged into a wider line, e.g. a card last-4 inside "ending in 2522
+    Change"). Text compatibility is a precision boost; geometry still wins when
+    OCR text is noisy.
     """
     source_geom = source_box.get("box") or []
     source_text = str(source_box.get("text") or "")
     candidates: List[Tuple[bool, int, Dict[str, Any]]] = []
     for index, ocr_box in enumerate(ocr_boxes):
-        coverage = _ocr_coverage(source_geom, ocr_box.get("box") or [])
-        if coverage < min_ocr_coverage:
+        ocr_box_geom = ocr_box.get("box") or []
+        if (
+            _ocr_coverage(source_geom, ocr_box_geom) < min_ocr_coverage
+            and _source_coverage(source_geom, ocr_box_geom) < min_source_coverage
+        ):
             continue
         text_ok = _text_compatible(source_text, str(ocr_box.get("text") or ""))
         candidates.append((text_ok, index, ocr_box))
@@ -117,10 +150,38 @@ def source_box_ocr_matches(
     return [item[2] for item in candidates]
 
 
+def _narrow_to_source_text(
+    ocr_text: str, start: int, end: int, source_text: Optional[str]
+) -> Tuple[int, int]:
+    """Narrow ``[start, end)`` to where ``source_text`` occurs in the window.
+
+    A tight source PII box (e.g. a name) often aligns to a wider OCR line/block
+    box whose char range ``[start, end)`` covers the whole line. Redacting that
+    range masks the entire line ("FREE Two-Day Shipping ... Alexa Copeland ...").
+    When the source text appears inside the matched window, narrow the span to
+    just that occurrence (whitespace-flexible match, so OCR line breaks vs the
+    source's single spaces still align). Falls back to the full range — the safe,
+    over-redacting direction — when no clean match is found.
+    """
+    window = ocr_text[start:end]
+    src = str(source_text or "").strip()
+    if not src or not window:
+        return start, end
+    tokens = [t for t in re.split(r"\s+", src) if t]
+    if not tokens:
+        return start, end
+    pattern = re.compile(r"\s+".join(re.escape(t) for t in tokens), re.IGNORECASE)
+    match = pattern.search(window)
+    if match is None:
+        return start, end
+    return start + match.start(), start + match.end()
+
+
 def align_source_pii_spans(
     row: Dict[str, Any],
     *,
     min_ocr_coverage: float = 0.5,
+    min_source_coverage: float = 0.6,
 ) -> Dict[str, Any]:
     """Create PII spans from WebPII source boxes once OCR boxes exist."""
     source_boxes = row.get("geometry", {}).get("source_pii_boxes") or []
@@ -135,10 +196,13 @@ def align_source_pii_spans(
     ]
     spans: List[Dict[str, Any]] = []
     for source_box in source_boxes:
+        if _source_key_base(source_box) in NON_REDACTABLE_SOURCE_KEYS:
+            continue
         matches = source_box_ocr_matches(
             source_box,
             ocr_boxes,
             min_ocr_coverage=min_ocr_coverage,
+            min_source_coverage=min_source_coverage,
         )
         if not matches:
             continue
@@ -146,7 +210,16 @@ def align_source_pii_spans(
         end = max(int(match["end"]) for match in matches)
         if end <= start:
             continue
-        box_ids = [str(match["box_id"]) for match in matches if match.get("box_id")]
+        start, end = _narrow_to_source_text(ocr_text, start, end, source_box.get("text"))
+        if end <= start:
+            continue
+        # Keep only the boxes the (possibly narrowed) char range still overlaps,
+        # so box_ids match what actually gets redacted; never drop to empty.
+        overlapping = [
+            match for match in matches
+            if int(match["start"]) < end and start < int(match["end"])
+        ] or matches
+        box_ids = [str(match["box_id"]) for match in overlapping if match.get("box_id")]
         span = new_pii_span(
             f"source_pii_{len(spans) + 1:04d}",
             str(source_box.get("entity_type")),
@@ -173,6 +246,7 @@ def ocr_row(
     *,
     align_source_pii: bool = True,
     min_ocr_coverage: float = 0.5,
+    min_source_coverage: float = 0.6,
 ) -> Dict[str, Any]:
     """Fill OCR boxes/text for one image row in place; return it."""
     if not row.get("modality", {}).get("has_image"):
@@ -190,7 +264,11 @@ def ocr_row(
     row["content"]["ocr_text"] = result.full_text
     row["modality"]["has_ocr"] = bool(boxes)
     if align_source_pii:
-        row = align_source_pii_spans(row, min_ocr_coverage=min_ocr_coverage)
+        row = align_source_pii_spans(
+            row,
+            min_ocr_coverage=min_ocr_coverage,
+            min_source_coverage=min_source_coverage,
+        )
     return row
 
 
@@ -213,7 +291,59 @@ def main() -> int:
         default=0.5,
         help="Minimum fraction of an OCR box covered by a source PII box.",
     )
+    parser.add_argument(
+        "--min-source-coverage",
+        type=float,
+        default=0.6,
+        help="Minimum fraction of a source PII box covered by an OCR box "
+             "(catches a tight PII token nested in a wider OCR line).",
+    )
+    parser.add_argument(
+        "--realign",
+        action="store_true",
+        help="Skip OCR and only re-run source-box -> OCR-span alignment over an "
+             "input that already has ocr_boxes (defaults to the slug's ocr.jsonl, "
+             "rewritten in place). Cheap way to re-align after a coverage change.",
+    )
     args = parser.parse_args()
+
+    # --realign reads an already-OCR'd file (default: the slug's ocr.jsonl) and
+    # rewrites it; no OCR engine is loaded.
+    if args.realign:
+        if args.input:
+            in_path = Path(args.input)
+        elif args.slug:
+            in_path = ocr_path(args.slug)
+        else:
+            parser.error("provide --input or --slug")
+        out_path = Path(args.output) if args.output else in_path
+        if not in_path.exists():
+            print(f"Input not found: {in_path}", file=sys.stderr)
+            return 1
+        rows = [json.loads(l) for l in in_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        total = aligned = invalid = 0
+        out_lines: List[str] = []
+        for row in rows:
+            if args.limit is not None and total >= args.limit:
+                out_lines.append(json.dumps(row, ensure_ascii=False))
+                continue
+            total += 1
+            if not args.no_source_pii_alignment:
+                row = align_source_pii_spans(
+                    row,
+                    min_ocr_coverage=args.min_ocr_coverage,
+                    min_source_coverage=args.min_source_coverage,
+                )
+            aligned += row.get("source_labels", {}).get("source_aligned_pii_span_count", 0)
+            errors = validate_row(row)
+            if errors:
+                invalid += 1
+                print(f"  invalid {row.get('input_id')}: {errors[0]}", file=sys.stderr)
+            out_lines.append(json.dumps(row, ensure_ascii=False))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+        print(f"Realign: {total} rows, {aligned} aligned spans, {invalid} invalid -> {out_path}")
+        return 1 if invalid else 0
 
     if args.input:
         in_path = Path(args.input)
@@ -251,6 +381,7 @@ def main() -> int:
                 adapter,
                 align_source_pii=not args.no_source_pii_alignment,
                 min_ocr_coverage=args.min_ocr_coverage,
+                min_source_coverage=args.min_source_coverage,
             )
             if had_image and row["modality"].get("has_ocr"):
                 ocred += 1

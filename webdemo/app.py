@@ -258,6 +258,25 @@ def api_review_save():
     return jsonify({"saved": True, "record": record})
 
 
+@app.route("/api/review/recompute", methods=["POST"])
+def api_review_recompute():
+    """Re-derive box mappings + a redacted preview for one row from its current
+    spans + unsaved span edits. Writes no labels/overrides; preview only."""
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    try:
+        result = review.recompute_row(data_file, input_id, payload.get("span_edits"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
 @app.route("/api/review/run-router", methods=["POST"])
 def api_review_run_router():
     """Explicitly run the shared VLM safety router on one row (PAID call).

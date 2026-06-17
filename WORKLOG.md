@@ -874,3 +874,82 @@ caps (max-height:78vh) on original + redacted images.
 
 Verified: GET / renders 200, JS brace-balanced, step order OCR < image < boxes
 table < redacted, risk-table class + select override present.
+
+## 2026-06-16 — WebPII image path: OCR + redaction over all 100 rows
+- Installed PaddleOCR 3.7.0 / paddlepaddle 3.3.1 (CPU). Hit a PIR-executor crash
+  (ConvertPirAttribute2RuntimeAttribute) whenever oneDNN was on; env-var FLAGS
+  did not bypass it. Fixed by defaulting PaddleOcrAdapter to enable_mkldnn=False
+  (overridable config knob), src/pipeline/Image/ocr.py.
+- Confirmed no GPU/NPU path on this box: iGPU is gfx1103 (Radeon 780M, unsupported
+  by ROCm, no paddlepaddle-rocm wheel on PyPI); XDNA NPU has no paddle backend.
+  Faster CPU route documented as paddle==3.0.0 + oneDNN.
+- Ran run_ocr.py --slug webpii --lang en: 100/100 rows with ocr_text + ocr_boxes
+  (4937 boxes). Ran run_pii_redaction.py --slug webpii: 90/100 rows with aligned
+  source PII spans (335 spans) + redacted images. Both validate 100/100.
+- Verified: webdemo file picker lists [ocr] and [redacted] webpii files, so the
+  Annotate tab's four image steps now render on real data. Tests: image/ocr/
+  alignment suites green (19 passed). Committed code+doc (data/ is gitignored).
+- Residual risk: WebPII is English; the VI PII pipeline adds little on top of the
+  source-box alignment. enable_mkldnn=False makes CPU OCR slower (~1 row/min).
+
+## 2026-06-17 — Annotate tab: live redaction recompute + fix source/span box split
+- Root cause of two bugs (edits not flowing downstream; "2522" detected but not
+  redacted): a split data model where the image overlay/table/box-edits used
+  geometry.source_pii_boxes while redaction used detections.pii_spans -> ocr_boxes.
+- Shared core: extracted recompute_redactions() into src/pipeline/Image/redaction.py
+  (maps each pii_span to OCR boxes, fills box_ids, builds redaction_metadata,
+  redacts human pixel boxes, renders image, returns regions). redact_row now calls
+  it; batch output unchanged (regression tests green).
+- Alignment fix: run_ocr.py source_box_ocr_matches now matches when max(ocr_cov,
+  source_cov) >= threshold (added --min-source-coverage 0.6) so a tight PII box
+  inside a wide OCR line aligns. Added --realign (skip OCR, re-align existing
+  ocr.jsonl in place). Re-aligned + re-redacted webpii: 90 -> 100/100 rows
+  redacted, validates 100/100; "2522" now a span (box_0017) and in
+  redaction_metadata.
+- Backend: webdemo recompute_row() + POST /api/review/recompute — applies in-flight
+  span_edits, writes a throwaway preview under data/safety_v0/review/preview/,
+  returns regions + preview path, persists nothing.
+- Frontend (index.html): overlay + step-6 table now derive from currentRegions()
+  (client-side span->OCR-box mapping; source=blue, human=dashed-green); edits
+  trigger a debounced recompute that swaps in the cache-busted redacted preview;
+  added a "Re-run redaction" sidebar button + recomputing indicator.
+- Verified: full suite 180 passed / 1 skipped (was 175); HTTP smoke test of
+  /api/review/recompute (baseline + human 2522 span -> mapped to box_0017, preview
+  served 200). Docs: webdemo/README.md (recompute endpoint + live behavior),
+  docs/datasets/webpii.md (coverage criteria + --realign).
+- Residual risk: redaction masks the whole OCR line (over-redaction) for sub-token
+  PII; enable_mkldnn=False keeps CPU OCR slow but realign avoids re-OCR.
+
+## 2026-06-17 — Sub-box redaction: clip OCR line to selected chars
+- map_span_to_box (src/pipeline/Image/redaction.py) now clips each overlapping
+  OCR segment box horizontally to the span's char sub-range (_clip_segment_box,
+  linear char->x interpolation, single-line assumption) before merging, instead
+  of masking the whole line box. Full-segment spans yield the full box (existing
+  tests unchanged). Mirrored client-side in index.html (clipBoxToChars/spanBoxes)
+  so the live overlay matches the redaction.
+- Effect: selecting "2522" inside the OCR line "ending in 2522 Change" now redacts
+  ~23% of the line at the true card-number position ([496.6..533.7] vs source box
+  [502..533]) instead of the full 163px line.
+- Verified: full suite 181 passed / 1 skipped; new test
+  test_map_span_clips_partial_selection_within_one_box; recompute_row end-to-end
+  shows the clipped human region. Docs: webdemo/README.md.
+- Residual risk: proportional to char count, so variable-width fonts / multi-line
+  OCR boxes are approximate; source-aligned spans still span their full matched
+  box (their char range is the whole line) — tightening those is a separate change.
+
+## 2026-06-17 — Narrow source-aligned spans to the PII token (no more whole-line redaction)
+- Bug (user screenshot): the OCR block "FREE Two-Day Shipping on this Order: Alexa Copeland, you can save $3.99 ... by" was redacted in full. Root cause: `align_source_pii_spans` set each aligned span's char range to the full extent of the matched OCR box(es) (`min(start)`..`max(end)`), so a tight source box (a name) inside a wide OCR block produced a span covering the whole block.
+- Fix (`scripts/safety_v0/run_ocr.py`): added `_narrow_to_source_text(ocr_text, start, end, source_text)` — whitespace-flexible regex search for the source text inside the matched window; narrows the span to that occurrence, else keeps the full range (safe over-redact fallback). `align_source_pii_spans` now narrows the range and trims `box_ids` to the boxes the narrowed range still overlaps (never empty). Redaction's existing `_clip_segment_box` then clips the pixel box horizontally to the sub-range.
+- Re-ran `run_ocr.py --slug webpii --realign` (100 rows, 894 aligned spans, 0 invalid) + `run_pii_redaction.py --slug webpii` (100/100 redacted, 0 invalid).
+- Verified: the Alexa block now yields two PERSON spans of exactly "Alexa Copeland" (was the whole block); the 583px OCR line redacts only ~99px at the name position. The earlier 96px tight line still redacts ~102px (with padding).
+- Tests: added `_narrow_to_source_text` cases (clip inside block, whitespace-flexible, absent->fallback) and `align_source_pii_spans` narrowing-in-block case to tests/test_run_ocr_webpii_alignment.py. Full suite 185 passed, 1 skipped.
+- Doc: docs/datasets/webpii.md alignment section now documents span narrowing.
+- Residual: narrowing is char-proportional and assumes single-line LTR text; multi-line OCR blocks or variable-width fonts make the pixel clip approximate (still far tighter than the whole line). Spans whose source text isn't literally in the OCR window keep the full box.
+
+## 2026-06-17 — Don't redact whole free-text MISC fields (gift message / delivery instructions)
+- Report (user screenshot, row safety_v0_webpii_000002): the entire gift message was masked. Source has PII_GIFT_MESSAGE -> MISC covering the whole personalized message; its embedded name (PII_GIFT_FULLNAME=James Pena) and address are already separately boxed. OCR reads across columns so the message text interleaves the shipping address, so span-narrowing can't isolate the message and the whole region (290..575) was redacted.
+- Decision (user): "Don't redact them" — free-text fields are not PII per se; the embedded PII is covered by its own boxes.
+- Fix (scripts/safety_v0/run_ocr.py): added NON_REDACTABLE_SOURCE_KEYS = {PII_GIFT_MESSAGE, PII_DELIVERY_INSTRUCTIONS} (mirrors convert_webpii MISC mapping) + `_source_key_base` (strips numeric suffixes). `align_source_pii_spans` skips these source boxes, so they stay in geometry.source_pii_boxes for the record but produce no redaction span. Applies via --realign with no re-OCR/re-convert.
+- Re-ran realign (100 rows, 839 aligned spans, down from 894 = 55 free-text fields dropped) + re-redact (100/100). Verified row 000002 now has 0 MISC spans, only LOCATION+PERSON, and James Pena is still redacted.
+- Test: tests/test_run_ocr_webpii_alignment.py::test_align_skips_free_text_misc_fields. Full suite 186 passed, 1 skipped.
+- Doc: docs/datasets/webpii.md documents the free-text MISC skip.
