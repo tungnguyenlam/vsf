@@ -1268,3 +1268,49 @@ the gold flags.
   (image_text+description -> image -> OCR) would make them true multimodal rows.
   English-only, so they feed the learned/multimodal detector + future translation,
   not the Vietnamese rule detector.
+
+## 2026-06-18 — Completed existing_repo_pii and WebPII weak-label status
+
+- Verified existing_repo_pii safety_v0 converted artifact: 1000/1000 canonical rows valid. Ran prompt-injection weak stage over it, producing data/safety_v0/weak/existing_repo_pii/weak_labeled.jsonl; 1 rule evidence span found but source-assumed prompt_injection=false was not overridden.
+- Closed WebPII weak-label gap by running prompt-injection rules over data/safety_v0/redacted/webpii/redacted.jsonl; output data/safety_v0/weak/webpii/weak_labeled.jsonl is 100/100 valid with 0 rule-flagged rows.
+- Updated DATA_PLAN.md: marked existing_repo_pii and WebPII done, recorded residual review note, and set next step to bounded VLGuard inspection/conversion.
+- Verified: validate_safety_v0 on existing_repo_pii converted + weak outputs and WebPII weak output; python -m pytest tests/test_convert_existing_repo_pii.py tests/test_pii_taxonomy.py -q (13 passed); python -m pytest tests/test_run_prompt_injection_rules.py tests/test_convert_existing_repo_pii.py -q (12 passed); python -m pytest tests/test_run_prompt_injection_rules.py tests/test_convert_webpii.py tests/test_run_ocr_webpii_alignment.py -q (20 passed).
+- Residual risk: existing_repo_pii rendering/synthetic OCR boxes remain deferred; review safety_v0_existing_repo_pii_000738 as a prompt-injection hard-negative sanity case.
+
+## 2026-06-18 — VLGuard metadata inspection and conversion
+
+- Retried `ys-zong/VLGuard` after access was granted. Downloaded metadata only (`README.md`, `train.json`, `test.json`) into `data/safety_v0/raw/vlguard/`; image zips were intentionally not downloaded because they are multi-GB.
+- Added VLGuard source scripts: `scripts/safety_v0/download/download_vlguard.py`, `scripts/safety_v0/inspect/inspect_vlguard.py`, and `scripts/safety_v0/convert/convert_vlguard.py`. Inspection artifacts written under `data/safety_v0/inspection/vlguard/`.
+- Added `docs/datasets/vlguard.md` and indexed it in `docs/datasets/README.md`. Updated `DATA_PLAN.md` with VLGuard state and next-step decision point.
+- Converted metadata to one canonical row per instruction-response pair: `data/safety_v0/converted/vlguard/source_canonical.jsonl`, 4,535/4,535 valid rows (train 2,977 / test 1,558). Mapping: sexually explicit -> sexual, violence -> violence, political -> political, personal data -> pii_visible; blood_gore remains unknown.
+- Ran prompt-injection weak stage: `data/safety_v0/weak/vlguard/weak_labeled.jsonl`, 4,535/4,535 valid rows, 0 rule-flagged.
+- Verified: `python -m pytest tests/test_convert_vlguard.py tests/test_run_prompt_injection_rules.py -q` (10 passed); `validate_safety_v0.py` on converted and weak VLGuard outputs.
+- Residual risk: VLGuard image OCR/PII/redaction is pending actual image extraction; do not automatically download upstream multi-GB zips without deciding the bounded image slice.
+
+## 2026-06-18 — webdemo Analyze tab: image upload + full image safety pipeline
+Extended the demo (Analyze) tab to mirror the Annotate tab's image flow. Users
+can now drop/browse an image; it runs OCR (PaddleOCR) → PII detection on the OCR
+text → span-to-box mapping + localized blur redaction, screens prompt injection
+over typed text + OCR text, and exposes an explicit (paid) VLM safety router
+button over the redacted artifact.
+- New `webdemo/image_demo.py`: orchestrates upload→OCR→PII→redact reusing
+  `Image.ocr`, `Image.redaction.recompute_redactions`, the PII pipeline, and the
+  schema row builders. Caches the OCR adapter + built rows in memory (keyed by a
+  `demo_id`) so the router reuses the same artifact without re-OCR. Uploads and
+  redacted previews land under `data/safety_v0/review/demo/` (git-ignored),
+  served via the existing `/api/review/image` route.
+- `webdemo/app.py`: added `POST /api/analyze-image` (multipart) and
+  `POST /api/demo/router` (paid, by `demo_id`).
+- `webdemo/templates/index.html`: drag/drop upload control, image-pipeline
+  output section (original w/ numbered region overlay, redacted image, OCR text
+  + PII highlight, regions table, router verdict), analyze() branches on image.
+- README updated (Analyze-tab description + new endpoints).
+Verified: import-check of app+module; end-to-end `process_image` on a real
+WebPII screenshot (OCR 23 boxes, redacted file written) and a synthetic email
+image (1 PII span → 1 region mapped to box_0001, redaction applied); HTTP smoke
+test (index renders new elements; `/api/analyze-image` returns spans/regions/
+redacted_url + PI verdict; `/api/review/image` serves the redacted PNG as
+200 image/png; `/api/demo/router` 404s cleanly on an unknown demo_id). The paid
+router call itself was not exercised (mirrors the already-working review route).
+Residual risk: first image analysis is slow (PaddleOCR warm-up); in-memory
+demo-row cache is per-process (lost on restart — UI re-runs analysis).

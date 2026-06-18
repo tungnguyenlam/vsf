@@ -4,6 +4,15 @@ A small Flask app for demoing the pipeline end to end: paste Vietnamese text and
 see (1) prompt-injection screening with an allow/flag/block verdict and matched
 rules, and (2) PII detection with highlighted spans plus the anonymized output.
 
+The **Analyze** tab also accepts an **image upload** (drop or browse). An
+uploaded image runs the same image safety pipeline the Annotate tab works over —
+OCR → PII detection → span-to-box mapping + localized blur redaction — and then
+screens prompt injection over the typed text plus the OCR'd text. It shows the
+original image with numbered PII regions, the redacted result, the extracted OCR
+text with PII highlighted, and a **Run safety router** button (paid VLM call) for
+the final allow/reject/unsure verdict over the redacted artifact. This mirrors
+the per-row flow in the Annotate tab so the demo reflects the real pipeline.
+
 ## Run
 
 From the repo root (uses the same Python env as the pipeline — Flask + Presidio
@@ -22,6 +31,8 @@ loaded lazily, and cached after first use.
 ## HTTP API
 
 - `POST /api/analyze` — `{text, pipeline?, detector?}` → both results (injection first, then PII).
+- `POST /api/analyze-image` — multipart `image` (file) + optional `text`, `pipeline`, `detector` → runs the image safety pipeline (OCR → PII detection → span/box mapping + localized redaction), screens prompt injection over the typed text **plus** the OCR text, and detects PII on any typed text. Returns `{prompt_injection, pii, image}` where `image` is `{demo_id, original_url, redacted_url, ocr_text, sanitized_ocr_text, image_size, ocr_box_count, pii_spans, regions}`. Uploads/redacted previews live under `data/safety_v0/review/demo/` (git-ignored) and are served via `/api/review/image`. The OCR adapter is cached and the built row is kept in memory keyed by `demo_id` so the router can reuse it.
+- `POST /api/demo/router` — `{demo_id, router?}` → runs the shared VLM safety router on a previously analyzed demo image (PAID; fired only by the button). Returns `{result, labels, modalities}`. 404 if the `demo_id` is unknown (re-run analysis).
 - `POST /api/prompt-injection` — `{text, detector?}` → `PromptInjectionResult`.
 - `POST /api/pii` — `{text, pipeline?}` → `{pipeline, spans, anonymized}`.
 - `GET /api/log` — recent analyze requests (most recent first).

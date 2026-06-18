@@ -31,6 +31,7 @@ from src.pipeline.PromptInjection import (  # noqa: E402
 )
 from src.pipeline.Router import build_router_input, get_router  # noqa: E402
 from src.pipeline.Utils import load_env  # noqa: E402
+from webdemo import image_demo  # noqa: E402
 from webdemo import safety_v0_review as review  # noqa: E402
 
 load_env()  # make .env keys (GEMINI_API_KEY, OPENROUTER_API_KEY) visible to routers/verifier
@@ -204,6 +205,78 @@ def api_analyze():
     pii_result = run_pii(text, pipeline_name)
     append_log(build_log_record(text, pi_result, pii_result))
     return jsonify({"prompt_injection": pi_result, "pii": pii_result})
+
+
+@app.route("/api/analyze-image", methods=["POST"])
+def api_analyze_image():
+    """Full image guardrail mirroring the Annotate pipeline on an upload.
+
+    Multipart form: ``image`` (file), optional ``text``, ``pipeline``,
+    ``detector``. Runs OCR -> PII -> span/box mapping + redaction on the image,
+    screens prompt injection over the typed text plus the OCR text, and detects
+    PII on any typed text. The paid VLM router is left to a separate explicit
+    call (see ``/api/demo/router``)."""
+    file_storage = request.files.get("image")
+    if file_storage is None or not file_storage.filename:
+        return jsonify({"error": "No image uploaded."}), 400
+    text = (request.form.get("text") or "").strip()
+    pipeline_name = request.form.get("pipeline") or DEFAULT_PII_PIPELINE
+    detector_name = request.form.get("detector") or DEFAULT_PI_DETECTOR
+    if pipeline_name not in list_pipeline_names():
+        return jsonify({"error": f"Unknown pipeline {pipeline_name!r}."}), 400
+    if detector_name not in list_prompt_injection_detector_names():
+        return jsonify({"error": f"Unknown detector {detector_name!r}."}), 400
+
+    try:
+        image_result = image_demo.process_image(
+            file_storage, text, get_pii_pipeline(pipeline_name), pipeline_name
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # OCR/redaction failure -> surface, don't 500 blank
+        return jsonify({"error": f"Image pipeline failed: {exc}"}), 500
+
+    # Screen prompt injection over the combined surface (typed text + OCR text),
+    # since an injection may live only in the image.
+    screen_text = "\n".join(t for t in (text, image_result["ocr_text"]) if t.strip())
+    pi_result = (
+        run_prompt_injection(screen_text, detector_name)
+        if screen_text.strip()
+        else None
+    )
+    pii_result = run_pii(text, pipeline_name) if text else None
+    return jsonify(
+        {"prompt_injection": pi_result, "pii": pii_result, "image": image_result}
+    )
+
+
+@app.route("/api/demo/router", methods=["POST"])
+def api_demo_router():
+    """Run the shared VLM safety router on a previously analyzed demo image.
+
+    PAID call, fired only by the explicit "Run safety router" button. Uses the
+    cached row (redacted image + sanitized text) built by ``/api/analyze-image``.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    demo_id = payload.get("demo_id")
+    router_name = payload.get("router") or DEFAULT_ROUTER
+    row = image_demo.get_demo_row(demo_id)
+    if row is None:
+        return jsonify({"error": "Demo image expired — re-run analysis."}), 404
+    try:
+        router = get_router_cached(router_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    router_input = build_router_input(row)
+    result = router.route(router_input)
+    return jsonify(
+        {
+            "router": router_name,
+            "result": result.to_dict(),
+            "labels": result.to_labels(),
+            "modalities": router_input.get("input_modalities", {}),
+        }
+    )
 
 
 @app.route("/api/log", methods=["GET"])

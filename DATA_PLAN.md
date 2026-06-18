@@ -157,9 +157,20 @@ Use these blocks as the active working checklist. Datasets not used in v0 are
 not listed here. Tick a source only after its own converter, notes, weak-label
 pass, and sanity review are done.
 
-### [ ] Existing Repo PII Datasets
+### [x] Existing Repo PII Datasets
 
 Decision: accept.
+
+State: converted and weak-labeled. The converter reuses the existing dataset
+registry and each dataset's own `label_to_presidio` mapping, writes source-gold
+PII spans, and deterministically anonymizes `content.sanitized_text`. Current
+artifact is a bounded 1,000-row train sample from `pii_masking_95k` and
+`hoangha_vie_pii`; both converted and weak-labeled outputs validate 1000/1000.
+Prompt-injection rules found one evidence span (`hoangha_vie_pii:train:4903`,
+`xuất bằng khóa API`) but did not override the source-assumed
+`prompt_injection=false`; keep that row in the sanity-review slice. Rendering,
+synthetic OCR boxes, and rendered-image redaction are deferred until we build the
+text-to-image augmentation pass. See `docs/datasets/existing_repo_pii.md`.
 
 Sources: `pii_masking_95k`, `hoangha_vie_pii`, and existing local PII rows.
 
@@ -185,13 +196,14 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/existing_repo_pii.md`
+- write `docs/datasets/existing_repo_pii.md` (done)
 - converter output:
-  `data/safety_v0/converted/existing_repo_pii/source_canonical.jsonl`
+  `data/safety_v0/converted/existing_repo_pii/source_canonical.jsonl` (done:
+  1000-row bounded sample)
 - weak-label output:
-  `data/safety_v0/weak/existing_repo_pii/weak_labeled.jsonl`
+  `data/safety_v0/weak/existing_repo_pii/weak_labeled.jsonl` (done)
 
-### [ ] `WebPII/webpii`
+### [x] `WebPII/webpii`
 
 Decision: accept. Sample inspection passed on 2026-06-16.
 
@@ -265,6 +277,8 @@ Completion notes:
 - redaction output: `data/safety_v0/redacted/webpii/redacted.jsonl` (done for
   the 100-row cached sample)
 - weak-label output: `data/safety_v0/weak/webpii/weak_labeled.jsonl`
+  (done: prompt-injection rules over redacted OCR output, 0/100 rule-flagged,
+  100/100 valid)
 
 ### [ ] `Meddies/meddies-pii`
 
@@ -506,6 +520,19 @@ Completion notes:
 
 Decision: accept after sample inspection.
 
+State: metadata converted and weak-labeled; image/OCR stages pending. Access was
+granted and metadata files were downloaded on 2026-06-18:
+`README.md`, `train.json`, and `test.json` under
+`data/safety_v0/raw/vlguard/`. Image zips were intentionally not downloaded
+(`train.zip`/`test.zip`, multi-GB). Inspection found 2,000 train rows and 1,000
+test rows; converter emits one canonical row per instruction-response pair,
+yielding 4,535 valid rows (train 2,977 / test 1,558). Weak prompt-injection
+stage over instructions produced 0 rule hits and 4,535/4,535 valid rows.
+Clear source mappings: `sexually explicit -> sexual=true`, `violence ->
+violence=true`, `political -> political=true`, `personal data ->
+pii_visible=true`. `blood_gore` stays unknown for violent rows because VLGuard
+does not distinguish blood/gore. See `docs/datasets/vlguard.md`.
+
 Why use it: image-rich visual safety source.
 
 First-pass pipeline:
@@ -524,9 +551,11 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/vlguard.md`
+- write `docs/datasets/vlguard.md` (done)
 - converter output: `data/safety_v0/converted/vlguard/source_canonical.jsonl`
+  (done from metadata; image files pending)
 - weak-label output: `data/safety_v0/weak/vlguard/weak_labeled.jsonl`
+  (done for text instructions; OCR/PII stages pending image extraction)
 
 ### [ ] `PKU-Alignment/MM-SafetyBench`
 
@@ -976,6 +1005,7 @@ Rules:
 
 ## Current Next Step
 
-Start with the existing repo PII datasets. They are already local to the project
-and fit the current Presidio pipeline best. After that, inspect `WebPII/webpii`
-with a small sample before writing a converter.
+Decide the VLGuard image extraction path before OCR: either download one large
+upstream zip and extract only the images referenced by a small review/OCR slice,
+or defer VLGuard image OCR and inspect `PKU-Alignment/MM-SafetyBench` metadata
+next. Do not download multi-GB image zips automatically.
