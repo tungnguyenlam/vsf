@@ -958,3 +958,313 @@ table < redacted, risk-table class + select override present.
 - Added docs/redaction-policy.md: an authoritative triage rule for annotation, organized by the 21 ENTITY_TYPES (LLMVerifier.py). Three tiers: MUST (redact every instance: CREDIT_CARD, CREDENTIAL, BANK_ACCOUNT, FINANCIAL, ID=govt/identity numbers, CRYPTO, MEDICAL, PHONE_NUMBER, EMAIL_ADDRESS), CONDITIONAL (redact when it identifies a person: PERSON, LOCATION, USERNAME, IP_ADDRESS, VEHICLE, DATE_TIME=DOB/card-expiry only, NRP, OCCUPATION, EDUCATION, PROPERTY), IGNORE (ORGANIZATION, URL-plain, MISC free-text, order/promo/job codes, qty/price/SKU, generic dates, boilerplate, example values). Includes ambiguity rules (bare numbers by VN context words, names vs brands, addresses, dates, free-text) and a WebPII source-key reference. Linked from docs/README.md.
 - Flagged inconsistency: PII_PO_NUMBER/PII_JOB_CODE/PII_PROMO_CODE currently map to ID (a MUST type) in convert_webpii.py but the policy classifies them as transaction identifiers = IGNORE. Candidate to reclassify/drop; not changed yet (needs user confirm).
 - No code/behavior change in this entry; doc only.
+
+## 2026-06-17 — Reclassify transaction codes (PO/job/promo) as non-PII per redaction policy
+- Per docs/redaction-policy.md, PII_PO_NUMBER / PII_JOB_CODE / PII_PROMO_CODE are transaction identifiers, not personal identity, but convert_webpii mapped them to ID (a MUST type). Reclassified: converter now returns None (no source box, never redacted); run_ocr.py NON_REDACTABLE_SOURCE_KEYS extended to also drop these at alignment so already-converted data clears them via --realign (no re-OCR). Generalized the constant's comment (free-text MISC fields + transaction identifiers).
+- Prevalence: only PII_PROMO_CODE present in WebPII (2 boxes / 2 rows, e.g. WELCOME69). Realign 839 -> 837 spans; verified 0 PO/job/promo spans remain; re-redacted 100/100.
+- Tests: test_convert_webpii.py asserts the three keys map to None. Full suite 186 passed, 1 skipped.
+- Doc: docs/redaction-policy.md source-key reference updated (done, not "candidate").
+
+## 2026-06-17 — Auto-load .env for router/verifier entrypoints
+
+Wired the repo-root `.env` (now holding `GEMINI_API_KEY`, `OPENROUTER_API_KEY`)
+into the LLM entrypoints so keys are picked up without a manual `export`.
+
+- Added `src/pipeline/Utils.load_env()` as the single source of truth for
+  loading `.env` (idempotent, best-effort; existing env vars win so an explicit
+  export still overrides). Refactored `load_hf_token()` to use it.
+- Called `load_env()` at the start of `scripts/safety_v0/run_router.py:main()`
+  and at `webdemo/app.py` import time.
+- The Gemini VLM router (`gemini_flash`) and the OpenRouter PII verifier both
+  resolve keys via `os.getenv`, so no call-site changes were needed.
+
+Verified: `GEMINI_API_KEY` visible after `load_env()` and after importing
+`webdemo.app` (was False before). 1-row PAID router smoke check succeeded
+(`run_router.py --slug webpii --limit 1` -> safe=1, invalid=0, valid Gemini
+structured output). Added `tests/test_utils_env.py` (3 cases: loads from .env,
+does not override an export, no-ops without python-dotenv). Router tests + full
+suite green (189 passed, 1 skipped). Updated `docs/vlm-safety-router.md` and
+`webdemo/README.md`.
+
+Residual risk: none functional. Budget note — only 1 paid Gemini call spent.
+
+## 2026-06-17 — Parked PII-dropout augmentation; resuming DATA_PLAN source queue
+
+Captured the PII-dropout augmentation design (self-labeled `pii_visible`
+variants by toggling which real PII boxes stay visible; both modalities
+co-vary; matched-pair training signal; free/no-LLM) as a DEFERRED design note
+`docs/pii-dropout-augmentation.md`. Indexed in `docs/README.md` and pointed to
+from a new "Deferred Ideas" section in `DATA_PLAN.md`. Not implemented — parked
+until the core source queue is further along.
+
+No code changes. Next: pick up the next source in the DATA_PLAN work queue.
+
+## 2026-06-17 — New source: deepset/prompt-injections (English-filtered) + reusable language filter
+
+Added the `deepset_prompt_injections` safety_v0 source (text prompt-injection
+positives/benign hard-negatives).
+
+- download/inspect/convert scripts under scripts/safety_v0/{download,inspect,
+  convert}/; raw persisted to data/safety_v0/raw/deepset_prompt_injections/
+  (train 546 / test 116, columns text+label).
+- Language constraint: source is EN+DE with no Vietnamese; project keeps only
+  EN/VI. Added reusable `src/pipeline/Datasets/language.py`
+  (detect_language / is_allowed_language; langdetect backend behind an
+  injectable interface, seed pinned to 42, strict drop of undetectable). Added
+  langdetect to requirements.txt.
+- Converter filters to English: kept 351 of 662 (train 287 / test 64; 154
+  attack / 197 benign); 311 dropped (222 German + other/undetectable). Kept set
+  audits 100% English. Strict drop = purity over yield (some short English lost).
+- Label mapping: prompt_injection from gold label (source_gold); action
+  reject/safe; pii_visible/sexual/violence/blood_gore False (source_assumption,
+  text prompts); political/religious left null (no topic gold — "null means
+  unknown, not false"). Attack rows get a whole-text prompt_injection_span.
+- Split preserved into source.split for the final build.
+
+Verified: convert output validates 351/351; new tests
+(test_convert_deepset_prompt_injections.py, test_language_filter.py) pass; full
+suite 201 passed, 1 skipped. Docs: docs/datasets/deepset_prompt_injections.md +
+index row; DATA_PLAN deepset section updated.
+
+Residual risk: ~30 short English rows likely dropped as nl/af false positives
+(acceptable for purity). No Vietnamese in this source. Next: run the
+prompt-injection rule detector over it (rule vs gold precision/recall) — needs
+the not-yet-built run_prompt_injection_rules.py batch script.
+
+## 2026-06-17 — New source: microsoft/llmail-inject-challenge (bounded, all PI positives)
+
+Added the `llmail_inject_challenge` safety_v0 source: email-structured
+prompt-injection submissions (every row is an attack -> positives only).
+
+- download/inspect/convert scripts under scripts/safety_v0/{download,inspect,
+  convert}/. Full dataset is huge (Phase1 ~370k / Phase2 ~91k rows, multi-GB
+  raw), so the download pages the HF datasets-server /rows API for a BOUNDED
+  sample (default 1,000/phase) — no full-file download — plus tiny meta/
+  description files. Raw under data/safety_v0/raw/llmail_inject_challenge/.
+- Mapping: prompt_injection=True for all (source_gold); action=reject; visual/PII
+  False; political/religious null. Whole-text prompt_injection_span with
+  attack_type=scenario (level code, e.g. level4e). objectives/scenario/team/phase
+  kept in source_labels. input_text = "Subject: {subject}\n\n{body}".
+- Split: Phase1->train, Phase2->test (Phase2 = different defenses -> useful
+  distribution-shift held-out set).
+- Language: English by construction but adversarial/obfuscated payloads break
+  langdetect (mislabels ~9% obfuscated English as fr/zh). Added reusable
+  is_mostly_latin / latin_letter_ratio to src/pipeline/Datasets/language.py and
+  filtered by SCRIPT instead (keeps EN+VI Latin script, drops non-Latin). Dropped
+  0 on the sample.
+
+Verified: convert validates 2,000/2,000 (train 1,000 / test 1,000), all
+prompt_injection=True, all political/religious null. New tests
+(test_convert_llmail_inject_challenge.py + latin-script cases in
+test_language_filter.py). Full suite 209 passed, 1 skipped. Docs:
+docs/datasets/llmail_inject_challenge.md + index row; DATA_PLAN section updated.
+
+Residual risk: bounded first-N sample (not random) under-represents rare
+scenarios; attack_type carries the challenge level, not a semantic attack family.
+Next (plan a): build run_prompt_injection_rules.py to run the rule detector over
+the PI sources (deepset, llmail, local_vi) and measure rule recall/precision vs
+the gold flags.
+
+## 2026-06-17 — Prompt-injection rule batch stage (plan a)
+
+- Added `scripts/safety_v0/run_prompt_injection_rules.py`: runs the rule-based
+  detector (`src/pipeline/PromptInjection`, via the detector registry) over
+  canonical rows. Scans `input_text` + `ocr_text`, appends evidence to
+  `detections.prompt_injection_spans` (`detector="rule"`, ids `pi_rule_*`, each
+  span tagged with `field`/`rule`), and fills the `prompt_injection` weak label
+  ONLY where unknown (`label_source="rule"`) — never overrides `source_gold`,
+  never touches `action`/topic axes. Detector + thresholds are config flips;
+  default in=converted, out=`weak/<slug>/weak_labeled.jsonl`. Prints + `--metrics`
+  persists precision/recall/F1 vs `source_gold` flags (free, no LLM).
+- Tests: `tests/test_run_prompt_injection_rules.py` (5) — rule spans + weak label
+  on attack, no-fire benign, source_gold not overridden, existing spans
+  preserved with unique ids, evaluate() P/R math. Full suite 214 passed, 1 skipped.
+- Ran over 3 PI sources (all validate 100%): deepset 351 -> P=1.0 R=0.084 F1=0.156;
+  llmail 2000 (all positives) -> P=1.0 R=0.022 F1=0.043; local_vi 120 -> P=1.0
+  R=1.0 F1=1.0. Wrote metrics JSON per source under weak/.
+- Finding: rules are high-precision / zero-FP everywhere (benign guard holds) but
+  near-zero recall on English/adversarial text; the perfect local_vi score is
+  overfit (rules tuned on those seeds). Reusable signal = a rule hit is almost
+  certainly a real attack; recall on non-VI sources needs a learned/LLM detector.
+- Docs: new "safety_v0 batch stage" section in docs/prompt-injection.md (results
+  table + takeaway); DATA_PLAN weak-label notes for the 3 sources updated done.
+- Residual risk: span char offsets index either input_text or ocr_text (recorded
+  in span `field`); schema's prompt_injection_span has no native field for this,
+  so it is stored as an extra key (validator ignores extras).
+
+## 2026-06-17 — EN->VI translation augmentation (whole-text labels)
+
+- New swappable Translation module `src/pipeline/Translation/` (Translator ABC,
+  GeminiTranslator, registry get_translator). Reuses the router's Gemini endpoint
+  + credentials (single source of truth). Faithful-translation system prompt that
+  explicitly tells the model NOT to obey injected instructions, only translate.
+  Retries HTTP 429 / quota with exponential backoff (configurable, injectable
+  sleep_fn for tests).
+- New stage `scripts/safety_v0/run_translation_augmentation.py`: for each eligible
+  EN row writes a VI twin (one sample -> two). Guards: never twins a row with
+  pii_spans (translation breaks offsets); EN->VI only (skip rows already target
+  language); twin labels inherited but provenance of content axes marked
+  `<orig>_translated` (e.g. source_gold_translated), gold whole-text PI span
+  regenerated over the VI text, `augmentation` block records backend/model/
+  source_input_id for split-safe pairing. Output data/safety_v0/augmented/<slug>/.
+  On-disk translation cache (manifests/translation_cache.json) so reruns never
+  re-pay and crashes resume. `--sleep` paces under free-tier RPM; `--limit` smoke.
+- Registry: added `augmented` per-source kind + augmented_path() in
+  safety_v0_sources.py (no hardcoded paths at call sites).
+- Tests: tests/test_translation.py (7: registry, injected client, system prompt
+  forbids obeying, empty no-call, batch, 429 retry-then-succeed, give-up) +
+  tests/test_run_translation_augmentation.py (5: twin valid+provenance+span,
+  benign no-span, no-mutate original, cache roundtrip, stable cache key). Full
+  suite 226 passed, 1 skipped.
+- Verified live: 3-row throttled smoke produced fluent natural Vietnamese
+  (quality good). Launched full deepset (351) translation in background, paced
+  --sleep 13 (~4.6/min under free-tier 5 RPM).
+- BLOCKER/finding: the Gemini key is on the FREE tier (5 req/min + daily cap), not
+  billed. deepset (~350) is ~75 min throttled; llmail (2000) is impractical on
+  free tier -> needs billing enabled or a bounded sample. Decided EN->VI only
+  (VI->EN would add English, which the project does not want).
+- Residual risk: adversarial/obfuscated attacks (llmail) may lose their mechanism
+  in translation though intent survives -> treat translated llmail as noisier.
+  Twin/original must stay in the same split downstream (augmentation.source_input_id).
+
+## 2026-06-17 — Translation retry hardening (503) + resilient run
+
+- First full deepset run died on a transient 503 (model overloaded); retry only
+  covered 429. Broadened GeminiTranslator retry to all transient errors (429 +
+  5xx 500/502/503/504, overloaded/unavailable/high-demand/timeout markers,
+  InternalServerError/APITimeoutError). Cache had saved 17 -> no progress lost.
+- Made the augmentation loop per-row resilient: a translation that exhausts
+  retries is logged + counted (failed), cache flushed, row skipped; the run
+  continues and a rerun fills the gap (cache skips done rows). Added `failed`
+  to the summary line. Tests: +1 (503 retry) -> translation suite 13, full 227
+  passed, 1 skipped. Resumed full deepset translation in background.
+
+## 2026-06-17 — Translation BLOCKED on free-tier daily cap; cross-check inconclusive
+
+- Root cause of the stalls: the Gemini free tier binding limit is a DAILY cap,
+  ~20 requests/day for gemini-3.5-flash (quota
+  GenerateRequestsPerDayPerProjectPerModel-FreeTier), not just 5/min. Stopped the
+  run after it hit the daily cap; cache preserved 21 translations. deepset (351)
+  ~= 18 days and llmail (2000) ~= 100 days at 20/day -> free-tier translation is
+  NOT viable at scale; needs billing on the key.
+- Partial deepset augmented file: 43 originals + 21 twins, all valid.
+- Matched-pair rule cross-check (EN original vs VI twin) on the 21 twins:
+  only 2 are gold attacks (early deepset rows are mostly benign), so the recall
+  comparison is statistically meaningless (EN 1/2, VI 0/2). The one solid signal:
+  ZERO false positives on both EN and VI benign rows (19/19) -> the benign guard
+  holds in Vietnamese too.
+- Updated docs/translation-augmentation.md cost section with the real 20/day cap.
+- DECISION NEEDED FROM USER: enable billing on the Gemini key to translate at
+  scale, or cap translation at a tiny daily-budget sample. Until then the VI-twin
+  recall question stays open.
+
+## 2026-06-17 — New source: vihsd_topic_safety (UIT-ViHSD)
+
+- Translation augmentation PAUSED per user (free-tier 20/day); moved to next source.
+- Added UIT-ViHSD as safety_v0 source vihsd_topic_safety (Vietnamese hate/offensive
+  comments). Canonical uitnlp/vihsd is a loading-script repo (not datasets-server
+  indexed), so downloaded a bounded sample from the parquet mirror phucdev/ViHSD
+  (free_text + label_id, train/validation/test); recorded source.name stays
+  canonical uitnlp/vihsd.
+- download_/inspect_/convert_vihsd_topic_safety.py: bounded /rows paging (auth'd,
+  default 2000 train / 500 dev / 1000 test = 3500); inspect writes label dist +
+  length buckets; converter maps conservatively.
+- Mapping (hate taxonomy is orthogonal to our 7 axes): prompt_injection=False +
+  pii_visible=False (source_assumption — gives scarce VI PI negatives, text-only);
+  sexual/violence/blood_gore/political/religious/action = null (unknown, for
+  teacher/review); hate label kept in source_labels {label_id,label_name,split}.
+  ViHSD validation -> our dev split.
+- Verified: convert 3500/3500 valid; dist CLEAN 2879 / HATE 362 / OFFENSIVE 259.
+  Tests tests/test_convert_vihsd_topic_safety.py (4). Full suite 231 passed, 1 skipped.
+- Docs: docs/datasets/vihsd_topic_safety.md + index row; DATA_PLAN section marked [x].
+- Residual: topic axes all null until a teacher/human pass; sample keeps source
+  CLEAN skew (balance at final-build); image render/OCR for these comments deferred.
+
+## 2026-06-17 — PI rule precision check on vihsd (VI negatives)
+
+- Ran run_prompt_injection_rules.py over vihsd_topic_safety (3500 real VI
+  non-attack comments). Rule fired on 1/3500 -> ~0.03% false-positive rate on
+  in-distribution Vietnamese text. Weak label correctly NOT filled (already
+  source_assumption False; rule does not override). weak_labeled.jsonl validates.
+- The 1 FP: a CLEAN comment about app privacy ("...nguy hiểm đến thông tin cá
+  nhân"); secret_or_data_exfiltration rule matched "đọc...thông tin cá nhân"
+  without an imperative/attack frame. Candidate rule refinement noted in
+  docs/prompt-injection.md; deferred (needs a broader benign VI set to avoid
+  regressing seed recall=1.0).
+
+## 2026-06-17 — Balanced Vietnamese prompt-injection eval set
+
+- Added `scripts/safety_v0/build_pi_vi_eval.py` (builder) and
+  `scripts/safety_v0/evaluate_pi_vi.py` (scorer). Builder combines local_vi gold
+  attacks (positives) + local_vi gold benigns + deterministic vihsd negatives
+  into `data/safety_v0/eval/pi_vi/eval.jsonl`; each row is a valid canonical row
+  plus a top-level `eval` block {label, bucket, gold}. Balanced by default
+  (148 rows: 74 pos / 74 neg = 46 benign_seed + 28 benign_vihsd); `--vihsd-negatives`
+  raises the realistic negative pool with one flag (no code change), seed 42.
+- Added `eval` shared kind + `eval_dir()` / `pi_vi_eval_path()` to
+  safety_v0_sources.py (path single source of truth).
+- Evaluator scores any registry detector: acc/P/R/F1, confusion, per-bucket
+  breakdown, FP/FN dump (`--errors`), metrics JSON (`--metrics`).
+- Verified: build 148/148 valid; evaluate_pi_vi on rule detector = P/R/F1 1.0 on
+  balanced set (recall overfit — same seeds rules were authored on); over all
+  3,500 vihsd negatives P=0.9867 R=1.0 F1=0.9933 with the single known
+  `secret_or_data_exfiltration` FP (..._002461) reproduced exactly.
+- Tests: tests/test_build_pi_vi_eval.py (5) + tests/test_evaluate_pi_vi.py (4),
+  all 9 green. Docs: docs/datasets/pi_vi_eval.md (+ index row), prompt-injection.md
+  section.
+- Residual risk: positives are overfit, so recall is not production-meaningful;
+  a real recall number needs held-out Vietnamese attacks (translated twins once
+  translation is unblocked, or fresh seeds). This set is the validation harness
+  for the deferred secret_or_data_exfiltration rule tightening.
+
+## 2026-06-17 — Tightened secret_or_data_exfiltration rule (FP fix)
+
+- Split the `secret_or_data_exfiltration` rule into two branches:
+  hard secrets (password/token/api key/secret/credentials/hidden info) still
+  fire on any read/extract verb incl. bare "đọc"/"read"; soft personal-data
+  targets (user data / personal info / chat history) now require a stronger
+  exfiltration verb (lấy/trích xuất/gửi/liệt kê/xuất/đọc toàn bộ/dump/...) and no
+  longer match bare "đọc"/"read".
+- Motivation: the one vihsd false positive (..._002461, benign "Đọc báo ...
+  thông tin cá nhân"). Verified beforehand that no local_vi positive relies on
+  bare đọc+soft-target (all use trích xuất / đọc toàn bộ / xuất / gửi), so no
+  recall regression.
+- Verified on the balanced Vietnamese eval set: over all 3,500 vihsd negatives
+  FP 1 -> 0, attack recall unchanged 74/74; P/R/F1 now 1.0 across the board.
+  Regenerated vihsd weak file (now 0 rule-flagged) and rebuilt eval.jsonl.
+- Tests: added 3 regression cases to tests/test_prompt_injection_detector.py
+  (benign reading allowed; hard-secret read still blocks; strong-verb personal
+  data still blocks). Full PI detector suite 15 green; build/evaluate suites green.
+- Docs updated: prompt-injection.md (vihsd precision paragraph + eval table),
+  docs/datasets/pi_vi_eval.md (measured tables + caveats).
+- Residual risk: none new. Recall on the eval positives is still overfit; a real
+  recall number needs held-out Vietnamese attacks.
+
+## 2026-06-17 — Added cyberseceval3_visual_prompt_injection source
+
+- Next DATA_PLAN source. Inspected facebook/cyberseceval3-visual-prompt-injection
+  via datasets-server: 1 config (visual_prompt_injection) / 1 split (test), 1,000
+  rows, 9 columns, NO image binaries (text-only: user_input_text + image's
+  image_text/image_description). All attacks (no benign control), all English.
+  500 direct / 500 indirect; risk_category 600 logic / 400 security; ~100 rows
+  empty image_text (scene-carried).
+- Added download (pages /rows, no image download), inspect, and convert scripts
+  (one PascalCase-free script each under download/inspect/convert). Converter maps
+  injection to OCR text: input_text<-user_input_text, ocr_text<-image_text, gold
+  span over ocr_text (field=ocr_text, detector=source_gold,
+  attack_type=visual_prompt_injection) when image_text present. Labels mirror
+  deepset: prompt_injection=True source_gold, action=reject, visual/sexual/
+  violence/blood_gore=False source_assumption, political/religious=None;
+  CyberSecEval taxonomy + system_prompt/image_description/judge_question kept in
+  source_labels. has_image=False (no pixels).
+- Verified: download 1000; convert 999 (1 dropped by language filter, id 292 minor
+  false-drop), 999/999 valid; weak PI rule stage 0/999 fire (R=0.0 — VN rules miss
+  English visual attacks, as expected), weak file 999/999 valid.
+- Tests: tests/test_convert_cyberseceval3_visual_prompt_injection.py (5) green;
+  related convert/PI suites green (20 total). Docs:
+  docs/datasets/cyberseceval3_visual_prompt_injection.md + index row; DATA_PLAN
+  entry marked [x] with state notes.
+- Residual risk: text-only stand-ins for visual attacks; a render step
+  (image_text+description -> image -> OCR) would make them true multimodal rows.
+  English-only, so they feed the learned/multimodal detector + future translation,
+  not the Vietnamese rule detector.

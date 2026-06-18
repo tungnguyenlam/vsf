@@ -24,6 +24,11 @@ the evaluator takes each dataset's mapping rather than assuming one global dict.
 | `existing_repo_pii` | [existing_repo_pii.md](existing_repo_pii.md) | safety_v0 source: converts repo PII datasets into canonical safety_v0 rows (PII-only, straight convert). |
 | `webpii` | [webpii.md](webpii.md) | safety_v0 source: English web UI image PII boxes for OCR/redaction and visible PII review. |
 | `local_vi_prompt_injection` | [local_vi_prompt_injection.md](local_vi_prompt_injection.md) | safety_v0 source: converts the local Vietnamese prompt-injection seeds into canonical rows (text-only, gold injection flag, straight convert). |
+| `deepset_prompt_injections` | [deepset_prompt_injections.md](deepset_prompt_injections.md) | safety_v0 source: public prompt-injection text, filtered to English (351 of 662 rows, train/test), gold injection flag, topic axes left null. |
+| `llmail_inject_challenge` | [llmail_inject_challenge.md](llmail_inject_challenge.md) | safety_v0 source: bounded sample of LLMail-Inject email prompt-injection submissions (2,000 rows, all positives; Phase1=train/Phase2=test); script-filtered to Latin. |
+| `vihsd_topic_safety` | [vihsd_topic_safety.md](vihsd_topic_safety.md) | safety_v0 source: bounded UIT-ViHSD Vietnamese hate/offensive comments (3,500 rows, train/dev/test); topic axes left null (orthogonal taxonomy), PI=False negatives, hate label kept in source_labels. |
+| `cyberseceval3_visual_prompt_injection` | [cyberseceval3_visual_prompt_injection.md](cyberseceval3_visual_prompt_injection.md) | safety_v0 source: CyberSecEval 3 visual prompt-injection (999 rows, all attacks, English, no image binaries); injection mapped to OCR text, gold PI flag, topic axes null. |
+| `pi_vi_eval` | [pi_vi_eval.md](pi_vi_eval.md) | safety_v0 eval set (not a build source): balanced Vietnamese prompt-injection benchmark (local_vi gold attacks + local_vi gold benigns + vihsd negatives) scoring precision AND recall together; default 148 rows. |
 
 ## Adding a dataset
 

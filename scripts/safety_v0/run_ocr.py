@@ -35,13 +35,24 @@ from src.pipeline.Image.ocr import get_ocr_adapter  # noqa: E402
 
 SOURCE_PII_ALIGNMENT_DETECTOR = "source_webpii_ocr_alignment"
 
-# Free-text WebPII fields the converter maps to MISC (see convert_webpii.py:
-# map_webpii_key_to_presidio). They hold a whole personalized message/instruction
-# whose only real PII (name, address) is already captured by dedicated boxes, so
-# redacting the entire field over-masks non-PII text. We keep the source box for
-# the record but do not turn it into a redaction span. Numeric copy suffixes are
-# stripped before the membership check.
-NON_REDACTABLE_SOURCE_KEYS = {"PII_GIFT_MESSAGE", "PII_DELIVERY_INSTRUCTIONS"}
+# WebPII source keys we never turn into redaction spans (see
+# docs/redaction-policy.md and convert_webpii.py:map_webpii_key_to_presidio).
+# Two groups:
+#   - Free-text fields (MISC): a whole personalized message/instruction whose only
+#     real PII (name, address) is already captured by dedicated boxes, so redacting
+#     the entire field over-masks non-PII text.
+#   - Transaction identifiers (order/job/promo codes): not personal identity.
+# New conversions no longer create boxes for these, but already-converted data may
+# still carry them; this set drops them at alignment time (cheap --realign, no
+# re-OCR). The source box is kept for the record but yields no span. Numeric copy
+# suffixes are stripped before the membership check.
+NON_REDACTABLE_SOURCE_KEYS = {
+    "PII_GIFT_MESSAGE",
+    "PII_DELIVERY_INSTRUCTIONS",
+    "PII_PO_NUMBER",
+    "PII_JOB_CODE",
+    "PII_PROMO_CODE",
+}
 
 
 def _source_key_base(source_box: Dict[str, Any]) -> str:

@@ -30,7 +30,10 @@ from src.pipeline.PromptInjection import (  # noqa: E402
     list_prompt_injection_detector_names,
 )
 from src.pipeline.Router import build_router_input, get_router  # noqa: E402
+from src.pipeline.Utils import load_env  # noqa: E402
 from webdemo import safety_v0_review as review  # noqa: E402
+
+load_env()  # make .env keys (GEMINI_API_KEY, OPENROUTER_API_KEY) visible to routers/verifier
 
 app = Flask(__name__)
 

@@ -41,6 +41,7 @@ from src.pipeline.Datasets.safety_v0_sources import (  # noqa: E402
     review_queue_dir,
 )
 from src.pipeline.Router import build_router_input, get_router  # noqa: E402
+from src.pipeline.Utils import load_env  # noqa: E402
 
 
 def _now() -> str:
@@ -104,6 +105,7 @@ def route_rows(
 
 
 def main() -> int:
+    load_env()  # make .env keys (GEMINI_API_KEY) visible to the router
     parser = argparse.ArgumentParser(description="Batch VLM safety router (paid) + fallback queue.")
     parser.add_argument("--slug", help="Source slug for default input/output paths.")
     parser.add_argument("--input", help="Input JSONL of canonical rows (overrides --slug).")

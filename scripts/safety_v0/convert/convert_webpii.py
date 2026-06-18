@@ -135,9 +135,11 @@ def map_webpii_key_to_presidio(key: str) -> Optional[str]:
     if base in {"PII_LOGIN_PASSWORD", "PII_LOGIN_PASSWORD_CONFIRM"}:
         return "CREDENTIAL"
 
-    # Order/job/promo codes are identifiers but not one of the named types.
+    # Order/job/promo codes are transaction identifiers, not personal identity
+    # (see docs/redaction-policy.md). They are intentionally NOT mapped, so they
+    # produce no source PII box and are never redacted.
     if base in {"PII_PO_NUMBER", "PII_JOB_CODE", "PII_PROMO_CODE"}:
-        return "ID"
+        return None
 
     # Free-text fields that may carry incidental PII; keep as MISC catch-all.
     if base in {"PII_DELIVERY_INSTRUCTIONS", "PII_GIFT_MESSAGE"}:

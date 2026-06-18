@@ -135,9 +135,10 @@ WebPII source keys to the taxonomy. Highlights relevant to this policy:
 - `PII_LOGIN_PASSWORD*` → `CREDENTIAL` (MUST); `PII_LOGIN_USERNAME` → `USERNAME`.
 - Name keys → `PERSON`; address family → `LOCATION`; `PII_PHONE*` →
   `PHONE_NUMBER`; email keys → `EMAIL_ADDRESS`.
-- `PII_PO_NUMBER` / `PII_JOB_CODE` / `PII_PROMO_CODE` → `ID` today, but per this
-  policy these are **transaction identifiers, not identity** — candidates to
-  reclassify or drop; flag if you see them redacted.
+- `PII_PO_NUMBER` / `PII_JOB_CODE` / `PII_PROMO_CODE` are **transaction
+  identifiers, not identity**, so the converter no longer maps them (no source
+  box, never redacted). Already-converted data drops them at alignment via
+  `NON_REDACTABLE_SOURCE_KEYS` in `run_ocr.py`.
 - `PII_GIFT_MESSAGE` / `PII_DELIVERY_INSTRUCTIONS` → `MISC` and are **not
   redacted** (free-text; embedded PII is boxed separately). `PII_CARD_IMAGE` /
   `PII_AVATAR` are unmapped (no text span).

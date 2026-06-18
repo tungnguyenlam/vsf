@@ -97,6 +97,7 @@ _PER_SOURCE_KINDS = (
     "rendered",
     "ocr",
     "redacted",
+    "augmented",
     "weak",
     "verified",
 )
@@ -107,6 +108,7 @@ _SHARED_KINDS = (
     "review/api_labels",
     "final",
     "manifests",
+    "eval",
 )
 
 
@@ -155,6 +157,11 @@ def redacted_images_dir(slug: str, *, root: Optional[Path] = None, create: bool 
     return source_dir("redacted", slug, root=root, create=create) / "images"
 
 
+def augmented_path(slug: str, *, root: Optional[Path] = None, create: bool = False) -> Path:
+    """Rows after augmentation (e.g. EN->VI translation twins): originals + twins."""
+    return source_dir("augmented", slug, root=root, create=create) / "augmented.jsonl"
+
+
 def weak_path(slug: str, *, root: Optional[Path] = None, create: bool = False) -> Path:
     """Rows after OCR + PII/redaction + prompt-injection + weak visual/topic labels."""
     return source_dir("weak", slug, root=root, create=create) / "weak_labeled.jsonl"
@@ -180,3 +187,17 @@ def final_dir(*, root: Optional[Path] = None, create: bool = False) -> Path:
 
 def manifests_dir(*, root: Optional[Path] = None, create: bool = False) -> Path:
     return shared_dir("manifests", root=root, create=create)
+
+
+def eval_dir(name: str, *, root: Optional[Path] = None, create: bool = False) -> Path:
+    """Curated evaluation-set directory, e.g. ``data/safety_v0/eval/<name>/``.
+
+    Eval sets are aggregates (built from several sources), so they live under the
+    shared ``eval`` kind rather than per-source.
+    """
+    return _ensure(shared_dir("eval", root=root, create=create) / name, create)
+
+
+def pi_vi_eval_path(*, root: Optional[Path] = None, create: bool = False) -> Path:
+    """Balanced Vietnamese prompt-injection eval set (positives + negatives)."""
+    return eval_dir("pi_vi", root=root, create=create) / "eval.jsonl"

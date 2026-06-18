@@ -107,6 +107,9 @@ Directory meaning:
 - `scripts/safety_v0/run_pii_redaction.py`: runs the current PII pipeline on
   input text and OCR text, writes PII spans, sanitized text, redacted images,
   and redaction metadata.
+- `scripts/safety_v0/run_translation_augmentation.py`: EN->VI translation twins
+  for whole-text-labelled rows (prompt injection / topic only, never PII). One
+  labelled sample becomes two. See `docs/translation-augmentation.md`.
 - `scripts/safety_v0/run_prompt_injection_rules.py`: runs rule-based
   prompt-injection detection on input text and OCR text.
 - `scripts/safety_v0/run_visual_topic_weak_labels.py`: maps source labels and
@@ -135,6 +138,8 @@ Directory meaning:
 - `data/safety_v0/rendered/<source>/`: generated images for text datasets.
 - `data/safety_v0/ocr/<source>/`: canonical rows after OCR boxes/text are added.
 - `data/safety_v0/redacted/<source>/`: redacted image files.
+- `data/safety_v0/augmented/<source>/`: canonical rows after augmentation
+  (e.g. EN->VI translation twins): originals + twins.
 - `data/safety_v0/weak/<source>/`: canonical rows after OCR, PII redaction,
   prompt-injection rules, and weak visual/topic labels.
 - `data/safety_v0/review/queue/`: JSONL rows selected for human review.
@@ -315,7 +320,9 @@ Completion notes:
 - converter output:
   `data/safety_v0/converted/local_vi_prompt_injection/source_canonical.jsonl`
 - weak-label output:
-  `data/safety_v0/weak/local_vi_prompt_injection/weak_labeled.jsonl`
+  `data/safety_v0/weak/local_vi_prompt_injection/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=1.0 F1=1.0 on 120 rows — overfit, rules tuned on
+  these seeds)
 
 ### [ ] `microsoft/llmail-inject-challenge`
 
@@ -337,13 +344,36 @@ Human review focus:
 - email boilerplate false positives
 - hidden or indirect attack text after rendering
 
+State:
+
+- 2026-06-17: download (bounded) + inspect + convert done.
+  `download_`/`inspect_`/`convert_llmail_inject_challenge.py` added.
+- Full dataset is huge (Phase1 ~370k / Phase2 ~91k); sampled 1,000 rows/phase
+  via the HF datasets-server `/rows` API (no full-file download) into
+  `data/safety_v0/raw/llmail_inject_challenge/` (+ tiny `meta/` description
+  files).
+- Every row is an injection attempt -> all positives. Mapping:
+  `prompt_injection=True` (source_gold), `action=reject`, visual/PII False,
+  `political`/`religious` null. Whole-text `prompt_injection_span` with
+  `attack_type=scenario` (level code); `objectives`/scenario/team kept in
+  `source_labels`.
+- Language: English by construction but adversarial/obfuscated, which breaks
+  langdetect; filtered by SCRIPT (`is_mostly_latin`) instead — keeps EN/VI-script
+  text, drops non-Latin. Dropped 0 on the sample. Converted output validates
+  2,000/2,000 (train 1,000 / test 1,000).
+- Tests: `tests/test_convert_llmail_inject_challenge.py` (+ latin-script cases in
+  `tests/test_language_filter.py`).
+
 Completion notes:
 
-- write `docs/datasets/llmail_inject_challenge.md`
+- write `docs/datasets/llmail_inject_challenge.md` (done)
 - converter output:
   `data/safety_v0/converted/llmail_inject_challenge/source_canonical.jsonl`
+  (done, bounded sample)
 - weak-label output:
-  `data/safety_v0/weak/llmail_inject_challenge/weak_labeled.jsonl`
+  `data/safety_v0/weak/llmail_inject_challenge/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=0.022 F1=0.043 on 2000 positives — rules barely
+  fire on adversarial English, needs a learned/LLM detector for recall)
 
 ### [ ] `deepset/prompt-injections`
 
@@ -365,17 +395,50 @@ Human review focus:
 - short ambiguous instructions
 - rule false positives caused by ordinary instruction text
 
+State:
+
+- 2026-06-17: download + inspect + convert done. `download_`/`inspect_`/
+  `convert_deepset_prompt_injections.py` added; raw persisted to
+  `data/safety_v0/raw/deepset_prompt_injections/` (train 546 / test 116).
+- Language: corpus is EN+DE, no Vietnamese. Converter filters to English/
+  Vietnamese via `src/pipeline/Datasets/language.py` (langdetect, strict).
+  Kept 351 of 662 English rows (train 287 / test 64; 154 attack / 197 benign);
+  311 dropped (222 German + other-language/undetectable). Converted output
+  validates 351/351.
+- Mapping: `prompt_injection` from gold label; `political`/`religious` left
+  `null` (no topic gold); visual/PII axes asserted `False` for these text
+  prompts. Attack rows carry a whole-text `prompt_injection_span`.
+- Tests: `tests/test_convert_deepset_prompt_injections.py`,
+  `tests/test_language_filter.py`.
+
 Completion notes:
 
-- write `docs/datasets/deepset_prompt_injections.md`
+- write `docs/datasets/deepset_prompt_injections.md` (done)
 - converter output:
   `data/safety_v0/converted/deepset_prompt_injections/source_canonical.jsonl`
+  (done, English-only)
 - weak-label output:
-  `data/safety_v0/weak/deepset_prompt_injections/weak_labeled.jsonl`
+  `data/safety_v0/weak/deepset_prompt_injections/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=0.084 F1=0.156 on 351 rows — high precision, low
+  recall on English attacks)
 
-### [ ] `facebook/cyberseceval3-visual-prompt-injection`
+### [x] `facebook/cyberseceval3-visual-prompt-injection`
 
 Decision: accept after sample inspection.
+
+State: converted (999 rows). Inspected: no image binaries ship — text-only rows
+(user_input_text + image's image_text/image_description), 1 config / 1 split (test),
+1,000 rows, all attacks (no benign control), all English. 500 direct / 500 indirect;
+risk_category 600 logic-violating / 400 security-violating; ~100 rows have empty
+image_text (scene-carried attacks). Mapped the injection to OCR text
+(input_text<-user_input_text, ocr_text<-image_text), gold prompt_injection=True,
+action=reject, visual/sexual/violence/blood_gore=False source_assumption,
+political/religious=None; CyberSecEval taxonomy kept in source_labels. has_image=False
+(no pixels) so OCR/redaction/box stages deferred until a render step. 1 row dropped
+by the language filter (id 292, minor false-drop). Weak rule detector over OCR text:
+0/999 fire (R=0.0) — Vietnamese rules don't catch English visual attacks; these are
+gold positives for a learned/multimodal detector and future translation. 999/999
+valid (converted + weak). See `docs/datasets/cyberseceval3_visual_prompt_injection.md`.
 
 Why use it: most directly aligned with visual prompt injection and should guide
 our rule-based visual prompt-injection detector.
@@ -402,9 +465,16 @@ Completion notes:
 - weak-label output:
   `data/safety_v0/weak/cyberseceval3_visual_prompt_injection/weak_labeled.jsonl`
 
-### [ ] `uitnlp/vihsd` And Related Vietnamese Hate/Toxicity Datasets
+### [x] `uitnlp/vihsd` And Related Vietnamese Hate/Toxicity Datasets
 
 Decision: accept as weak topic/safety data.
+
+State: converted. Bounded sample (2000 train / 500 dev / 1000 test = 3500) pulled
+from the parquet-indexed `phucdev/ViHSD` mirror (canonical `uitnlp/vihsd` not
+datasets-server indexed). Topic axes left null (hate taxonomy is orthogonal to our
+7 axes), prompt_injection=False + pii_visible=False source_assumptions (useful VI
+PI negatives), hate label kept in source_labels. 3500/3500 valid. Image
+rendering/OCR deferred (text-only for now). See `docs/datasets/vihsd_topic_safety.md`.
 
 Why use it: useful Vietnamese text for hate/toxicity and topic filtering, but
 it should not be blindly mapped to violence.
@@ -891,6 +961,18 @@ Rules:
 - [ ] prompt-injection hard negatives are present
 - [ ] source counts do not exceed target mix
 - [ ] manual review overrides apply correctly
+
+## Deferred Ideas
+
+- **PII-dropout augmentation** (image PII rows -> self-labeled `pii_visible`
+  variants by toggling which real PII boxes stay visible). Parked design note:
+  `docs/pii-dropout-augmentation.md`. Do not build until the core source queue
+  below is further along.
+- **EN->VI translation augmentation** — BUILT and tested
+  (`scripts/safety_v0/run_translation_augmentation.py`,
+  `docs/translation-augmentation.md`) but PAUSED: the Gemini key is free-tier
+  (~20 requests/day), so scale translation needs billing enabled. Partial run
+  left 21 deepset twins + a populated cache; resumable once billing is on.
 
 ## Current Next Step
 

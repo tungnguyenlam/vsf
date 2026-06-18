@@ -111,7 +111,9 @@ risk flags. This is a **paid** call and runs only on click — never on load.
 "Apply to form" copies the router's decision into the editable fields (it does
 not save), so a human still confirms before writing an override. Set
 `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) for the router to reach the API; without
-a key it returns `unsure` with the error shown inline.
+a key it returns `unsure` with the error shown inline. The key is read from the
+repo-root `.env` automatically — `webdemo/app.py` calls `Utils.load_env()` at
+startup, so no manual `export` is needed (an explicit export still wins).
 
 Batch routing happens offline via `scripts/safety_v0/run_router.py`, which writes
 an **API-label layer** to `data/safety_v0/review/api_labels/<source>.jsonl` and a

@@ -35,6 +35,11 @@ def test_map_webpii_key_to_presidio(conv):
     assert conv.map_webpii_key_to_presidio("PII_LOGIN_PASSWORD") == "CREDENTIAL"
     assert conv.map_webpii_key_to_presidio("PII_CARD_IMAGE") is None
     assert conv.map_webpii_key_to_presidio("PRODUCT1_NAME") is None
+    # Transaction identifiers are not personal identity -> not mapped/redacted
+    # (see docs/redaction-policy.md).
+    assert conv.map_webpii_key_to_presidio("PII_PROMO_CODE") is None
+    assert conv.map_webpii_key_to_presidio("PII_PO_NUMBER") is None
+    assert conv.map_webpii_key_to_presidio("PII_JOB_CODE") is None
 
 
 def test_source_pii_boxes_maps_visible_non_empty_only(conv):

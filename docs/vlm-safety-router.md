@@ -304,6 +304,11 @@ interface in `src/pipeline/Router/`:
 - Config (single source of truth, `router.py`): `DEFAULT_MODEL =
   "gemini-flash-latest"`, `DEFAULT_BASE_URL` = Gemini's OpenAI-compatible
   endpoint, key from `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
+- Key loading: both entrypoints (`scripts/safety_v0/run_router.py` and
+  `webdemo/app.py`) call `src.pipeline.Utils.load_env()` at startup, which loads
+  the repo-root `.env` into the environment. So dropping `GEMINI_API_KEY` in
+  `.env` is enough — no manual `export`. An explicit shell export still wins
+  (`.env` does not override an already-set variable).
 
 The router is fired EXPLICITLY from the webdemo "Run router" button
 (`POST /api/review/run-router`) — never on load — because it spends paid budget.
