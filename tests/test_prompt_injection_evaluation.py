@@ -142,6 +142,72 @@ def test_external_train_strategy_requires_train_dataset():
         raise AssertionError("Expected ValueError when train_dataset is missing.")
 
 
+def test_heldout_reproducer_matches_writeup_tables():
+    # Pin the held-out numbers in writeup/report.typ and writeup/report-vi.typ to
+    # what scripts/safety_v0/run_heldout_evaluation.py actually produces from
+    # the cached translations. Run the script (no LLM spend; reads on-disk JSONL)
+    # and assert the headline numbers (allow 3-decimal rounding vs the report).
+    from scripts.safety_v0.run_heldout_evaluation import (
+        evaluate_deepset_vi,
+        evaluate_llmail_vi,
+    )
+
+    deepset = evaluate_deepset_vi()
+    llmail = evaluate_llmail_vi()
+
+    def _close(actual: float, expected: float, places: int = 3) -> bool:
+        return round(actual, places) == round(expected, places)
+
+    # deepset_vi: rules 1.000/0.065/0.122; NB cross-source 0.380/0.307; in-domain 0.791.
+    by_train = {(run["detector"], run["train"]): run for run in deepset["runs"]}
+    assert _close(
+        by_train[("rule_based_prompt_injection", "authored (none)")]["f1"], 0.122
+    )
+    assert _close(
+        by_train[("char_ngram_prompt_injection", "external:pi_vi_eval")]["f1"], 0.380
+    )
+    assert _close(
+        by_train[
+            ("char_ngram_prompt_injection", "external:local_vietnamese_seed")
+        ]["f1"],
+        0.307,
+    )
+    assert _close(
+        by_train[
+            ("char_ngram_prompt_injection", "leave-one-out (in-domain)")
+        ]["f1"],
+        0.791,
+    )
+
+    # llmail_vi: rules 0.026; NB recall 0.262 -> 0.364 -> 0.386 with pool size.
+    by_train = {(run["detector"], run["train"]): run for run in llmail["runs"]}
+    assert _close(
+        by_train[("rule_based_prompt_injection", "authored (none)")]["recall"],
+        0.026,
+    )
+    assert _close(
+        by_train[("char_ngram_prompt_injection", "external:pi_vi_eval")]["recall"],
+        0.262,
+    )
+    assert _close(
+        by_train[("char_ngram_prompt_injection", "external:deepset_vi")]["recall"],
+        0.364,
+    )
+    assert _close(
+        by_train[
+            (
+                "char_ngram_prompt_injection",
+                (
+                    "external:pi_vi_eval,local_vietnamese_seed,"
+                    "local_vietnamese_app_seed,local_vietnamese_mentor_seed,"
+                    "deepset_vi"
+                ),
+            )
+        ]["recall"],
+        0.386,
+    )
+
+
 def test_nb_threshold_sweep_finds_no_deployable_gain_over_default():
     from scripts.safety_v0.sweep_pi_vi_nb_threshold import _confusion, _metrics
 

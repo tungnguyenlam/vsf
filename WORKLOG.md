@@ -1606,3 +1606,17 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Cost: ~430 gpt-4o-mini calls (negligible). Residual risk: llmail_vi is
   recall-only (no benigns) so cannot detect over-firing; only 500/2000 rows
   translated; VI labels inherited via translation (not hand-verified).
+
+## 2026-06-25 — Held-out reproducer pinned to writeup numbers
+- Added scripts/safety_v0/run_heldout_evaluation.py: re-runs the rule-based and
+  char-ngram NB detectors on deepset_vi + llmail_vi from the cached translations
+  (no LLM spend, reads on-disk JSONL) and rewrites both output JSONs.
+- Pinned the writeup tables with a new test
+  (test_heldout_reproducer_matches_writeup_tables) that asserts the reproducer
+  numbers match the rounded report figures (deepset_vi F1 0.122/0.380/0.307/0.791,
+  llmail_vi recall 0.026/0.262/0.364/0.386).
+- Verified: re-ran the script; every row reproduces exactly. Full suite 286
+  passed, 1 skipped.
+- Residual risk: numbers are exact, but the report shows 3-decimal rounding; the
+  test allows rounding error so a future small refactor (e.g. test ordering in
+  the pool) cannot silently drift the cited numbers.
