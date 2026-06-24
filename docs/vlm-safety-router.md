@@ -283,3 +283,81 @@ Rows can supervise different heads:
 
 Never convert unknown labels to `false`.
 
+## Implementation Status
+
+The generative-JSON router (the first path above) is built behind a narrow
+interface in `src/pipeline/Router/`:
+
+- `router.py` — `SafetyRouter` interface; `GeminiVlmRouter` default backend
+  (Gemini Flash vision over an OpenAI-compatible Chat Completions endpoint),
+  selected by name via `get_router` (config flip). `model`/`base_url` swap the
+  engine; the `openai` client and API key are resolved lazily, so importing the
+  module and the test suite need neither. Any call failure (auth, network, SDK)
+  routes to `unsure`, audited in `RouterResult.error`.
+- `input.py` — `build_router_input(row)` is the "merge before model" step: it
+  maps a canonical row to the compact input contract (prefers the redacted
+  image, sanitized OCR/text, span/redaction summaries, modality flags).
+- `output.py` — `parse_router_output` validates the flat JSON; missing/invalid
+  `action` or non-boolean risk flags route to `unsure` (`valid=False`) while
+  keeping any present boolean flags for audit. Unknown flags stay `None`, never
+  coerced to `false`. `RouterResult.to_labels()` yields the 8-field label dict.
+- Config (single source of truth, `router.py`): `DEFAULT_MODEL =
+  "gemini-flash-latest"`, `DEFAULT_BASE_URL` = Gemini's OpenAI-compatible
+  endpoint, key from `GEMINI_API_KEY` / `GOOGLE_API_KEY`.
+- Key loading: both entrypoints (`scripts/safety_v0/run_router.py` and
+  `webdemo/app.py`) call `src.pipeline.Utils.load_env()` at startup, which loads
+  the repo-root `.env` into the environment. So dropping `GEMINI_API_KEY` in
+  `.env` is enough — no manual `export`. An explicit shell export still wins
+  (`.env` does not override an already-set variable).
+
+The router is fired EXPLICITLY from the webdemo "Run router" button
+(`POST /api/review/run-router`) — never on load — because it spends paid budget.
+It returns the decision for inspection and never writes labels; the reviewer
+chooses whether to copy it into the form.
+
+### Batch stage + fallback queue
+
+`scripts/safety_v0/run_router.py` routes a JSONL of canonical rows (default
+`redacted/<slug>/redacted.jsonl`) and writes two artifacts:
+
+- `review/api_labels/<slug>.jsonl` — one record per row with the router decision
+  as an API-label layer (`label_source="api"`; unknown flags stay `None`).
+- `review/queue/<slug>.jsonl` — the fallback queue: rows whose action is
+  `unsure` or whose output failed validation, with a reason.
+
+Cost discipline (CLAUDE.md): the CLI refuses to run without `--limit N` (or an
+explicit `--all`), since it spends one paid model call per row.
+
+The Annotate tab applies the API-label layer as the **base** layer beneath any
+human override: routed rows show the router's labels with `label_source="api"`
+and `review.status="needs_review"`, and a human edit saved on top wins and
+becomes `label_source="human"`. This closes the loop preprocessing -> router ->
+human review.
+
+The classifier-head approach and a second-pass/auto fallback (beyond queuing for
+human review) are not built yet.
+
+### OpenRouter fallback (opt-in)
+
+When the Gemini call exhausts its retries on a transient error (free-tier daily
+cap, 429, 5xx), the router can call an OpenRouter model as a one-shot fallback.
+This is **opt-in** and **text-only**:
+
+- Wire it by passing `fallback_client=` (a pre-built `OpenAI` client whose
+  `base_url` points at `https://openrouter.ai/api/v1`) when constructing
+  `GeminiVlmRouter`. The key is read from `OPENROUTER_API_KEY` (or
+  `OPENAI_API_KEY`).
+- Default fallback model: `xiaomi/mimo-v2.5`. Override via `fallback_model=`.
+- Triggered only after the primary call raises a retryable error; the same
+  retryability rules as the translator (HTTP 429 / 5xx + overload markers).
+- **Text-only** — the default fallback model is not a VLM, so the router skips
+  the fallback for rows that carry an image. Image rows continue to land in the
+  `unsure` fallback queue as before.
+- No `response_format` constraint is sent on the fallback call; the existing
+  `parse_router_output` handles malformed/chatty responses by routing to
+  `unsure`. A fallback that raises also ends up as `unsure` (with the original
+  Gemini error in `RouterResult.error`).
+
+No automatic runtime switching: a script must construct the router with the
+fallback client explicitly. Selection stays configuration, reproducible.
+

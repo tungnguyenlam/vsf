@@ -15,7 +15,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 
 # Make the repo root importable when run as `python webdemo/app.py`.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,11 +29,18 @@ from src.pipeline.PromptInjection import (  # noqa: E402
     get_prompt_injection_detector,
     list_prompt_injection_detector_names,
 )
+from src.pipeline.Router import build_router_input, get_router  # noqa: E402
+from src.pipeline.Utils import load_env  # noqa: E402
+from webdemo import image_demo  # noqa: E402
+from webdemo import safety_v0_review as review  # noqa: E402
+
+load_env()  # make .env keys (GEMINI_API_KEY, OPENROUTER_API_KEY) visible to routers/verifier
 
 app = Flask(__name__)
 
 DEFAULT_PII_PIPELINE = "regex_recall"
 DEFAULT_PI_DETECTOR = "rule_based_prompt_injection"
+DEFAULT_ROUTER = "gemini_flash"
 
 # One JSONL line per /api/analyze call, for the in-app Log view.
 LOG_PATH = os.path.join(REPO_ROOT, "webdemo", "logs", "demo_requests.jsonl")
@@ -43,6 +50,13 @@ LOG_VIEW_LIMIT = 200
 _pii_pipelines = {}
 _pi_detectors = {}
 _anonymizer = None
+_routers = {}
+
+
+def get_router_cached(name):
+    if name not in _routers:
+        _routers[name] = get_router(name)
+    return _routers[name]
 
 
 def get_pii_pipeline(name):
@@ -193,6 +207,78 @@ def api_analyze():
     return jsonify({"prompt_injection": pi_result, "pii": pii_result})
 
 
+@app.route("/api/analyze-image", methods=["POST"])
+def api_analyze_image():
+    """Full image guardrail mirroring the Annotate pipeline on an upload.
+
+    Multipart form: ``image`` (file), optional ``text``, ``pipeline``,
+    ``detector``. Runs OCR -> PII -> span/box mapping + redaction on the image,
+    screens prompt injection over the typed text plus the OCR text, and detects
+    PII on any typed text. The paid VLM router is left to a separate explicit
+    call (see ``/api/demo/router``)."""
+    file_storage = request.files.get("image")
+    if file_storage is None or not file_storage.filename:
+        return jsonify({"error": "No image uploaded."}), 400
+    text = (request.form.get("text") or "").strip()
+    pipeline_name = request.form.get("pipeline") or DEFAULT_PII_PIPELINE
+    detector_name = request.form.get("detector") or DEFAULT_PI_DETECTOR
+    if pipeline_name not in list_pipeline_names():
+        return jsonify({"error": f"Unknown pipeline {pipeline_name!r}."}), 400
+    if detector_name not in list_prompt_injection_detector_names():
+        return jsonify({"error": f"Unknown detector {detector_name!r}."}), 400
+
+    try:
+        image_result = image_demo.process_image(
+            file_storage, text, get_pii_pipeline(pipeline_name), pipeline_name
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # OCR/redaction failure -> surface, don't 500 blank
+        return jsonify({"error": f"Image pipeline failed: {exc}"}), 500
+
+    # Screen prompt injection over the combined surface (typed text + OCR text),
+    # since an injection may live only in the image.
+    screen_text = "\n".join(t for t in (text, image_result["ocr_text"]) if t.strip())
+    pi_result = (
+        run_prompt_injection(screen_text, detector_name)
+        if screen_text.strip()
+        else None
+    )
+    pii_result = run_pii(text, pipeline_name) if text else None
+    return jsonify(
+        {"prompt_injection": pi_result, "pii": pii_result, "image": image_result}
+    )
+
+
+@app.route("/api/demo/router", methods=["POST"])
+def api_demo_router():
+    """Run the shared VLM safety router on a previously analyzed demo image.
+
+    PAID call, fired only by the explicit "Run safety router" button. Uses the
+    cached row (redacted image + sanitized text) built by ``/api/analyze-image``.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    demo_id = payload.get("demo_id")
+    router_name = payload.get("router") or DEFAULT_ROUTER
+    row = image_demo.get_demo_row(demo_id)
+    if row is None:
+        return jsonify({"error": "Demo image expired — re-run analysis."}), 404
+    try:
+        router = get_router_cached(router_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    router_input = build_router_input(row)
+    result = router.route(router_input)
+    return jsonify(
+        {
+            "router": router_name,
+            "result": result.to_dict(),
+            "labels": result.to_labels(),
+            "modalities": router_input.get("input_modalities", {}),
+        }
+    )
+
+
 @app.route("/api/log", methods=["GET"])
 def api_log_list():
     return jsonify({"records": read_log()})
@@ -203,6 +289,124 @@ def api_log_clear():
     if os.path.exists(LOG_PATH):
         os.remove(LOG_PATH)
     return jsonify({"cleared": True})
+
+
+# ----------------------------- safety_v0 review -----------------------------
+@app.route("/api/review/files", methods=["GET"])
+def api_review_files():
+    """Canonical safety_v0 JSONL files available to review."""
+    return jsonify({"files": review.list_canonical_files()})
+
+
+@app.route("/api/review/rows", methods=["GET"])
+def api_review_rows():
+    """Rows for one file with human overrides applied, plus summary stats."""
+    rel_path = request.args.get("file") or ""
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    rows, stats = review.load_rows(data_file)
+    return jsonify({"file": rel_path, "rows": rows, "stats": stats})
+
+
+@app.route("/api/review/save", methods=["POST"])
+def api_review_save():
+    """Append a human override (labels + review) for one row."""
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    try:
+        record = review.save_override(
+            data_file,
+            input_id,
+            payload.get("labels") or {},
+            payload.get("review") or {},
+            reviewer=payload.get("reviewer"),
+            span_edits=payload.get("span_edits"),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"saved": True, "record": record})
+
+
+@app.route("/api/review/export-overrides", methods=["GET"])
+def api_review_export_overrides():
+    """Export the human overrides file for a given dataset."""
+    rel_path = request.args.get("file") or ""
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    override_path = review._layer_path_for(data_file.path, "human_overrides")
+    if not os.path.exists(override_path):
+        return jsonify({"error": "No overrides found."}), 404
+    return send_file(override_path, as_attachment=True, download_name=os.path.basename(override_path))
+
+
+@app.route("/api/review/recompute", methods=["POST"])
+def api_review_recompute():
+    """Re-derive box mappings + a redacted preview for one row from its current
+    spans + unsaved span edits. Writes no labels/overrides; preview only."""
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    try:
+        result = review.recompute_row(data_file, input_id, payload.get("span_edits"))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/review/run-router", methods=["POST"])
+def api_review_run_router():
+    """Explicitly run the shared VLM safety router on one row (PAID call).
+
+    Fired only by the "Run router" button — never on load. Returns the validated
+    router decision (action + risk flags) so the reviewer can inspect it and, if
+    they choose, copy it into the label form. It does NOT write any labels.
+    """
+    payload = request.get_json(force=True, silent=True) or {}
+    rel_path = payload.get("file") or ""
+    input_id = payload.get("input_id")
+    router_name = payload.get("router") or DEFAULT_ROUTER
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    if not input_id:
+        return jsonify({"error": "Missing input_id."}), 400
+    row = review.get_row(data_file, input_id)
+    if row is None:
+        return jsonify({"error": f"Row {input_id!r} not found."}), 404
+    try:
+        router = get_router_cached(router_name)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    router_input = build_router_input(row)
+    result = router.route(router_input)
+    return jsonify({
+        "router": router_name,
+        "result": result.to_dict(),
+        "labels": result.to_labels(),
+        "modalities": router_input.get("input_modalities", {}),
+    })
+
+
+@app.route("/api/review/image", methods=["GET"])
+def api_review_image():
+    """Serve an image referenced by a row, constrained to the data root."""
+    image_path = review.resolve_image(request.args.get("path"))
+    if image_path is None:
+        return jsonify({"error": "Image not found."}), 404
+    return send_file(image_path)
 
 
 if __name__ == "__main__":

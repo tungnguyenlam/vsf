@@ -1,10 +1,30 @@
 import re
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Callable, Iterable, List, Optional
 
 from presidio_analyzer import AnalysisExplanation, EntityRecognizer, RecognizerResult
 
 from src.pipeline.Recognizers.BaseRecognizer import BaseRecognizer
+
+
+def luhn_check(value: str) -> bool:
+    """Return True if the digits in ``value`` satisfy the Luhn checksum.
+
+    Used to keep bare credit-card-number matches high precision: only ~1 in 10
+    random digit strings of the right length passes, so this rejects most
+    non-card numbers (account numbers, IDs, etc.) that share the digit shape.
+    """
+    digits = [int(c) for c in value if c.isdigit()]
+    if len(digits) < 12:
+        return False
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
 
 
 @dataclass(frozen=True)
@@ -14,6 +34,9 @@ class ContextRegexPattern:
     regex: str
     score: float
     ignore_case: bool = True
+    # Optional post-match guard: receives the matched value text and must return
+    # True to keep the span (e.g. a Luhn checksum for card numbers).
+    validator: Optional[Callable[[str], bool]] = None
 
 
 class VietnameseContextRegexRecognizer(EntityRecognizer):
@@ -44,6 +67,8 @@ class VietnameseContextRegexRecognizer(EntityRecognizer):
             for match in re.finditer(pattern.regex, text, flags=flags):
                 start, end = self._value_span(match)
                 if start == end:
+                    continue
+                if pattern.validator is not None and not pattern.validator(text[start:end]):
                     continue
                 results.append(
                     RecognizerResult(
@@ -378,6 +403,106 @@ class CustomPatternRecognizer(BaseRecognizer):
                     r"\s*[:*]?\s*(?P<value>\d(?:[ -]?\d){7,18})"
                 ),
                 score=0.86,
+            ),
+            # --- Mechanical-format PII (expanded taxonomy) --------------------
+            # Distinctive, context-free formats; high precision without anchors.
+            ContextRegexPattern(
+                name="url",
+                entity_type="URL",
+                regex=(
+                    r"(?P<value>\b(?:https?://|www\.)"
+                    r"[^\s<>\"'\)\]]*[^\s<>\"'\)\].,;:!?])"
+                ),
+                score=0.9,
+            ),
+            ContextRegexPattern(
+                name="ipv4",
+                entity_type="IP_ADDRESS",
+                regex=(
+                    r"(?<![\d.])(?P<value>(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}"
+                    r"(?:25[0-5]|2[0-4]\d|1?\d?\d))(?![\d.])"
+                ),
+                score=0.9,
+            ),
+            ContextRegexPattern(
+                name="ipv6",
+                entity_type="IP_ADDRESS",
+                regex=(
+                    r"(?<![\w:])(?P<value>(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,6}:[A-Fa-f0-9]{1,4}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,5}(?::[A-Fa-f0-9]{1,4}){1,2}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,4}(?::[A-Fa-f0-9]{1,4}){1,3}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,3}(?::[A-Fa-f0-9]{1,4}){1,4}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,2}(?::[A-Fa-f0-9]{1,4}){1,5}"
+                    r"|[A-Fa-f0-9]{1,4}:(?::[A-Fa-f0-9]{1,4}){1,6}"
+                    r"|::(?:[A-Fa-f0-9]{1,4}:){0,5}[A-Fa-f0-9]{1,4}"
+                    r"|(?:[A-Fa-f0-9]{1,4}:){1,7}:)(?![\w:])"
+                ),
+                score=0.85,
+            ),
+            ContextRegexPattern(
+                name="mac_address",
+                entity_type="IP_ADDRESS",
+                regex=(
+                    r"(?<![\w:-])(?P<value>(?:[0-9A-Fa-f]{2}[:-]){5}"
+                    r"[0-9A-Fa-f]{2})(?![\w:-])"
+                ),
+                score=0.9,
+            ),
+            ContextRegexPattern(
+                name="crypto_ethereum",
+                entity_type="CRYPTO",
+                regex=r"(?<!\w)(?P<value>0x[a-fA-F0-9]{40})(?!\w)",
+                score=0.95,
+            ),
+            ContextRegexPattern(
+                name="crypto_bitcoin",
+                entity_type="CRYPTO",
+                regex=(
+                    r"(?<!\w)(?P<value>(?:bc1[ac-hj-np-z02-9]{11,71}"
+                    r"|[13][a-km-zA-HJ-NP-Z1-9]{25,34}))(?!\w)"
+                ),
+                score=0.82,
+            ),
+            ContextRegexPattern(
+                name="crypto_litecoin",
+                entity_type="CRYPTO",
+                regex=(
+                    r"(?<!\w)(?P<value>(?:ltc1[ac-hj-np-z02-9]{11,71}"
+                    r"|[LM][a-km-zA-HJ-NP-Z1-9]{25,34}))(?!\w)"
+                ),
+                score=0.78,
+            ),
+            ContextRegexPattern(
+                name="credit_card_grouped",
+                entity_type="CREDIT_CARD",
+                regex=r"(?<!\d)(?P<value>\d{4}(?:[ -]\d{4}){3})(?!\d)",
+                score=0.85,
+            ),
+            ContextRegexPattern(
+                name="credit_card_context",
+                entity_type="CREDIT_CARD",
+                regex=(
+                    r"(?:số\s*thẻ(?:\s*tín\s*dụng)?|thẻ\s*tín\s*dụng|card\s*number)"
+                    r"\s*[:*]?\s*(?P<value>\d{4}(?:[ -]?\d{4}){2,3}|\d{13,19})"
+                ),
+                score=0.82,
+            ),
+            # NOTE: a bare card-number pattern (issuer-prefix + Luhn via the
+            # `validator` hook) was measured on the 5k dev sample and removed: it
+            # added only +1 TP for +14 FP (CREDIT_CARD F1 0.892 -> 0.877). In this
+            # banking-heavy data the misses are CVVs / non-standard SO_THE values,
+            # not bare brand cards, so bare matching only catches look-alike
+            # account numbers. The `luhn_check` guard stays available for a future
+            # context-gated card pattern.
+            ContextRegexPattern(
+                name="card_cvv_context",
+                entity_type="CREDIT_CARD",
+                regex=(
+                    r"(?:cvv|cvc|mã\s*bảo\s*mật(?:\s*thẻ)?(?:\s*cvv)?)"
+                    r"\s*[:*]?\s*(?P<value>\d{3,4})(?!\d)"
+                ),
+                score=0.8,
             ),
         ]
         if self.recall_mode:

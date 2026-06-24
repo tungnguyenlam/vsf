@@ -28,6 +28,22 @@ def split_train_validation_frame(
     return partition.sort_index()
 
 
+def load_env():
+    """Load the nearest .env into ``os.environ`` (idempotent, best-effort).
+
+    Single source of truth for making ``.env`` keys (GEMINI_API_KEY,
+    OPENROUTER_API_KEY, HF_TOKEN, ...) visible to a process. Existing environment
+    variables win, so an explicit ``export`` still overrides ``.env``. Safe to
+    call from any entrypoint; a missing python-dotenv is silently ignored.
+    """
+    try:
+        from dotenv import load_dotenv, find_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))
+    except ImportError:
+        pass
+
+
 def load_hf_token():
     """Load the nearest .env into the environment and return the HF token.
 
@@ -36,12 +52,7 @@ def load_hf_token():
     """
     import os
 
-    try:
-        from dotenv import load_dotenv, find_dotenv
-
-        load_dotenv(find_dotenv(usecwd=True))
-    except ImportError:
-        pass
+    load_env()
     return os.environ.get("HF_TOKEN")
 
 

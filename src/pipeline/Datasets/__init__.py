@@ -7,6 +7,7 @@ from src.pipeline.Datasets.registry import (
 )
 from src.pipeline.Datasets.variants import (
     HoangHaViePiiDataset,
+    VI_PII_DROPPED_LABELS,
     VI_PII_LABEL_TO_PRESIDIO,
     VIE_PII_LABEL_TO_PRESIDIO,
     PiiMasking95kDataset,
@@ -18,6 +19,7 @@ __all__ = [
     "DATASET_REGISTRY",
     "HoangHaViePiiDataset",
     "PiiMasking95kDataset",
+    "VI_PII_DROPPED_LABELS",
     "VI_PII_LABEL_TO_PRESIDIO",
     "VIE_PII_LABEL_TO_PRESIDIO",
     "get_dataset",

@@ -255,3 +255,30 @@ This is enough for a demo and keeps the current text pipeline reusable.
 4. Add a shared VLM safety router interface with explicit multi-head outputs.
 5. Add fallback routing and audit logging.
 6. Add a small seed evaluation set for image safety flows.
+
+## Implementation Status
+
+Stages 1–2 (deterministic preprocessing) are built:
+
+- **OCR adapter** — `src/pipeline/Image/ocr.py`. `OcrAdapter` is the narrow
+  interface; `PaddleOcrAdapter` is the default backend (selected by name via
+  `get_ocr_adapter`, so swapping engines is a config flip). `paddleocr` is
+  imported lazily on first `run()`, so importing the module and the test suite
+  never require the heavy dependency. `OcrResult.full_text` plus
+  character-aligned `OcrSegment` boxes are the bridge to PII detection.
+- **Span-to-box redaction** — `src/pipeline/Image/redaction.py`.
+  `map_span_to_box` / `map_spans_to_boxes` align PII char spans to OCR segments
+  and merge the overlapping boxes (with padding, clamped to the image);
+  `redact_image` blurs or fills those regions (Pillow, lazy import).
+- **Stage CLIs** — `scripts/safety_v0/run_ocr.py`
+  (`converted/<slug> -> ocr/<slug>`, fills `geometry.ocr_boxes` +
+  `content.ocr_text`) and `scripts/safety_v0/run_pii_redaction.py`
+  (`ocr/<slug> -> redacted/<slug>`, fills `detections.pii_spans` +
+  `redaction_metadata`, writes the redacted image and `sanitized_ocr_text`).
+  Both default their paths from `safety_v0_sources.py` and accept
+  `--input`/`--output` overrides. These stages fill `content`/`geometry`/
+  `detections` only and **never set `labels`** — labels stay unknown (`null`)
+  for the weak-label / router / human stages.
+
+Stages 4–7 (VLM safety router, fallback routing) are not built yet; the router
+is fired explicitly, never on every analyze.

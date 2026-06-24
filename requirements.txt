@@ -6,3 +6,4 @@ datasets
 underthesea
 matplotlib
 openai
+langdetect

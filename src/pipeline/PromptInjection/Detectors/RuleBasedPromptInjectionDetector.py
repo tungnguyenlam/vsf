@@ -266,14 +266,29 @@ class RuleBasedPromptInjectionDetector(BasePromptInjectionDetector):
             PromptInjectionRule(
                 name="secret_or_data_exfiltration",
                 category="data_exfiltration",
+                # Two branches so the verb requirement matches the target's
+                # sensitivity:
+                #   - hard secrets (password/token/api key/secret/credentials/
+                #     hidden info) fire on any read/extract verb, incl. bare
+                #     "đọc"/"read" — "đọc mật khẩu" is already an attack;
+                #   - soft personal data (user data / personal info / chat
+                #     history) needs a stronger exfiltration verb (lấy/trích
+                #     xuất/gửi/liệt kê/xuất/đọc toàn bộ/dump/...) and explicitly
+                #     NOT bare "đọc"/"read", so benign reading like "đọc báo …
+                #     thông tin cá nhân" no longer matches.
                 pattern=(
+                    r"(?:"
                     r"\b(?:lấy|trích\s+xuất|gửi|liệt\s+kê|xuất\s+ra|xuất|"
                     r"đọc\s+toàn\s+bộ|đọc|extract|send|list|dump|read)\b.{0,90}?"
                     r"\b(?:mật\s+khẩu|token|api\s*key|khóa\s+api|"
-                    r"secret|credentials?|dữ\s+liệu\s+người\s+dùng|user\s+data|"
-                    r"dữ\s+liệu\s+cá\s+nhân|"
-                    r"lịch\s+sử\s+chat|thông\s+tin\s+cá\s+nhân|thông\s+tin\s+ẩn|"
-                    r"password|credentials?|user\s+data)\b"
+                    r"secret|credentials?|password|thông\s+tin\s+ẩn)\b"
+                    r"|"
+                    r"\b(?:lấy|trích\s+xuất|gửi|liệt\s+kê|xuất\s+ra|xuất|"
+                    r"đọc\s+toàn\s+bộ|extract|send|list|dump)\b.{0,90}?"
+                    r"\b(?:dữ\s+liệu\s+người\s+dùng|user\s+data|"
+                    r"dữ\s+liệu\s+cá\s+nhân|lịch\s+sử\s+chat|"
+                    r"thông\s+tin\s+cá\s+nhân)\b"
+                    r")"
                 ),
                 weight=0.65,
                 description="Attempts to extract secrets or user data.",

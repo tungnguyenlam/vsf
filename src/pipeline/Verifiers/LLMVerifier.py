@@ -33,6 +33,7 @@ _PROVIDER_UNSET = object()
 # Presidio entity types this pipeline targets. The adjudicator may re-label a
 # span to any of these; anything else is treated as "drop".
 ENTITY_TYPES = [
+    # Original 8 (recognizers exist)
     "PERSON",
     "LOCATION",
     "ORGANIZATION",
@@ -41,6 +42,20 @@ ENTITY_TYPES = [
     "BANK_ACCOUNT",
     "ID",
     "DATE_TIME",
+    # Expanded PII taxonomy (see VI_PII_LABEL_TO_PRESIDIO)
+    "CREDIT_CARD",
+    "CRYPTO",
+    "IP_ADDRESS",
+    "URL",
+    "CREDENTIAL",
+    "FINANCIAL",
+    "MEDICAL",
+    "VEHICLE",
+    "USERNAME",
+    "NRP",
+    "OCCUPATION",
+    "EDUCATION",
+    "PROPERTY",
     "MISC",
 ]
 

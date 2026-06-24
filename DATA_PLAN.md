@@ -107,6 +107,9 @@ Directory meaning:
 - `scripts/safety_v0/run_pii_redaction.py`: runs the current PII pipeline on
   input text and OCR text, writes PII spans, sanitized text, redacted images,
   and redaction metadata.
+- `scripts/safety_v0/run_translation_augmentation.py`: EN->VI translation twins
+  for whole-text-labelled rows (prompt injection / topic only, never PII). One
+  labelled sample becomes two. See `docs/translation-augmentation.md`.
 - `scripts/safety_v0/run_prompt_injection_rules.py`: runs rule-based
   prompt-injection detection on input text and OCR text.
 - `scripts/safety_v0/run_visual_topic_weak_labels.py`: maps source labels and
@@ -135,6 +138,8 @@ Directory meaning:
 - `data/safety_v0/rendered/<source>/`: generated images for text datasets.
 - `data/safety_v0/ocr/<source>/`: canonical rows after OCR boxes/text are added.
 - `data/safety_v0/redacted/<source>/`: redacted image files.
+- `data/safety_v0/augmented/<source>/`: canonical rows after augmentation
+  (e.g. EN->VI translation twins): originals + twins.
 - `data/safety_v0/weak/<source>/`: canonical rows after OCR, PII redaction,
   prompt-injection rules, and weak visual/topic labels.
 - `data/safety_v0/review/queue/`: JSONL rows selected for human review.
@@ -152,9 +157,20 @@ Use these blocks as the active working checklist. Datasets not used in v0 are
 not listed here. Tick a source only after its own converter, notes, weak-label
 pass, and sanity review are done.
 
-### [ ] Existing Repo PII Datasets
+### [x] Existing Repo PII Datasets
 
 Decision: accept.
+
+State: converted and weak-labeled. The converter reuses the existing dataset
+registry and each dataset's own `label_to_presidio` mapping, writes source-gold
+PII spans, and deterministically anonymizes `content.sanitized_text`. Current
+artifact is a bounded 1,000-row train sample from `pii_masking_95k` and
+`hoangha_vie_pii`; both converted and weak-labeled outputs validate 1000/1000.
+Prompt-injection rules found one evidence span (`hoangha_vie_pii:train:4903`,
+`xuất bằng khóa API`) but did not override the source-assumed
+`prompt_injection=false`; keep that row in the sanity-review slice. Rendering,
+synthetic OCR boxes, and rendered-image redaction are deferred until we build the
+text-to-image augmentation pass. See `docs/datasets/existing_repo_pii.md`.
 
 Sources: `pii_masking_95k`, `hoangha_vie_pii`, and existing local PII rows.
 
@@ -180,23 +196,27 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/existing_repo_pii.md`
+- write `docs/datasets/existing_repo_pii.md` (done)
 - converter output:
-  `data/safety_v0/converted/existing_repo_pii/source_canonical.jsonl`
+  `data/safety_v0/converted/existing_repo_pii/source_canonical.jsonl` (done:
+  1000-row bounded sample)
 - weak-label output:
-  `data/safety_v0/weak/existing_repo_pii/weak_labeled.jsonl`
+  `data/safety_v0/weak/existing_repo_pii/weak_labeled.jsonl` (done)
 
-### [ ] `WebPII/webpii`
+### [x] `WebPII/webpii`
 
-Decision: accept after sample inspection.
+Decision: accept. Sample inspection passed on 2026-06-16.
 
 Why use it: directly relevant to visible/web PII and image-based PII risk.
 
 First-pass pipeline:
 
-- download a small sample first
-- inspect whether images, OCR text, boxes, and labels are present
+- download a small sample first (done 2026-06-16)
+- inspect whether images, OCR text, boxes, and labels are present (sample
+  inspected 2026-06-16: images and source boxes are present; OCR text and
+  character offsets are not source-provided)
 - run OCR even if source text exists so we test our real image path
+- align source PII boxes to OCR boxes after OCR (implemented 2026-06-16)
 - run PII detection on OCR text
 - map source PII labels only when their meaning is clear
 - redact detected PII boxes before router training
@@ -207,11 +227,58 @@ Human review focus:
 - boxes that are too small, too large, or mapped to the wrong text
 - false positives from web UI labels, buttons, and boilerplate
 
+Bootstrap state:
+
+- 2026-06-16: downloaded the upstream sample files only, not the full multi-GB
+  shard set, into the Hugging Face cache.
+- repo raw link:
+  `data/safety_v0/raw/webpii -> ~/.cache/huggingface/hub/datasets--WebPII--webpii/snapshots/6d3317721b72bde719a361c564ceaf1fbded3a8e`
+- cached sample files:
+  `README.md`, `sample/README.md`, `sample/sample_manifest.json`,
+  `sample/schema_sample_100.parquet`, and
+  `sample/webpii_visual_samples.zip`
+- reproducible command:
+  `python scripts/safety_v0/download/download_webpii.py`
+
+Inspection state:
+
+- 2026-06-16: added `scripts/safety_v0/inspect/inspect_webpii.py` and wrote
+  inspection artifacts under `data/safety_v0/inspection/webpii/`.
+- sample parquet: 100 rows x 18 columns, image bytes plus source UI element
+  boxes, 933 PII elements, 124 unique PII keys.
+- visual zip: 28 page directories, 132 PNG files, 28 metadata files, 10
+  companies, 11 page types.
+- mapping notes written in `docs/datasets/webpii.md`.
+- 2026-06-16: added `scripts/safety_v0/convert/convert_webpii.py` and wrote
+  `data/safety_v0/converted/webpii/source_canonical.jsonl` for the cached
+  100-row sample. Output has image paths and source PII boxes, but no OCR text,
+  OCR boxes, or PII character spans yet.
+- 2026-06-16: extended `scripts/safety_v0/run_ocr.py` so WebPII source boxes
+  are aligned to OCR boxes after OCR and written as source-provenance
+  `detections.pii_spans`. PaddleOCR/model setup remains optional for full runs.
+- 2026-06-16: ran real English PaddleOCR on all 100 cached WebPII sample rows
+  using the `vinai` conda env (`paddleocr==3.7.0`, `paddlepaddle==3.2.2`,
+  `HOME=/tmp/paddle-home`). Output:
+  `data/safety_v0/ocr/webpii/ocr.jsonl`, 100/100 valid rows, 4,937 OCR boxes,
+  333 source-aligned PII spans across 90 rows.
+- 2026-06-16: ran redaction over the 100-row OCR output. Output:
+  `data/safety_v0/redacted/webpii/redacted.jsonl`, 100/100 valid rows, 90
+  redacted images, 335 PII spans/redactions total. The 10 no-redaction rows
+  still have source PII boxes and need alignment review.
+
 Completion notes:
 
 - write `docs/datasets/webpii.md`
 - converter output: `data/safety_v0/converted/webpii/source_canonical.jsonl`
+  (done for cached 100-row sample)
+- OCR/source alignment stage: implemented in `scripts/safety_v0/run_ocr.py`
+  and covered by `tests/test_run_ocr_webpii_alignment.py`; real English OCR
+  done for all 100 cached sample rows
+- redaction output: `data/safety_v0/redacted/webpii/redacted.jsonl` (done for
+  the 100-row cached sample)
 - weak-label output: `data/safety_v0/weak/webpii/weak_labeled.jsonl`
+  (done: prompt-injection rules over redacted OCR output, 0/100 rule-flagged,
+  100/100 valid)
 
 ### [ ] `Meddies/meddies-pii`
 
@@ -267,7 +334,9 @@ Completion notes:
 - converter output:
   `data/safety_v0/converted/local_vi_prompt_injection/source_canonical.jsonl`
 - weak-label output:
-  `data/safety_v0/weak/local_vi_prompt_injection/weak_labeled.jsonl`
+  `data/safety_v0/weak/local_vi_prompt_injection/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=1.0 F1=1.0 on 120 rows — overfit, rules tuned on
+  these seeds)
 
 ### [ ] `microsoft/llmail-inject-challenge`
 
@@ -289,13 +358,36 @@ Human review focus:
 - email boilerplate false positives
 - hidden or indirect attack text after rendering
 
+State:
+
+- 2026-06-17: download (bounded) + inspect + convert done.
+  `download_`/`inspect_`/`convert_llmail_inject_challenge.py` added.
+- Full dataset is huge (Phase1 ~370k / Phase2 ~91k); sampled 1,000 rows/phase
+  via the HF datasets-server `/rows` API (no full-file download) into
+  `data/safety_v0/raw/llmail_inject_challenge/` (+ tiny `meta/` description
+  files).
+- Every row is an injection attempt -> all positives. Mapping:
+  `prompt_injection=True` (source_gold), `action=reject`, visual/PII False,
+  `political`/`religious` null. Whole-text `prompt_injection_span` with
+  `attack_type=scenario` (level code); `objectives`/scenario/team kept in
+  `source_labels`.
+- Language: English by construction but adversarial/obfuscated, which breaks
+  langdetect; filtered by SCRIPT (`is_mostly_latin`) instead — keeps EN/VI-script
+  text, drops non-Latin. Dropped 0 on the sample. Converted output validates
+  2,000/2,000 (train 1,000 / test 1,000).
+- Tests: `tests/test_convert_llmail_inject_challenge.py` (+ latin-script cases in
+  `tests/test_language_filter.py`).
+
 Completion notes:
 
-- write `docs/datasets/llmail_inject_challenge.md`
+- write `docs/datasets/llmail_inject_challenge.md` (done)
 - converter output:
   `data/safety_v0/converted/llmail_inject_challenge/source_canonical.jsonl`
+  (done, bounded sample)
 - weak-label output:
-  `data/safety_v0/weak/llmail_inject_challenge/weak_labeled.jsonl`
+  `data/safety_v0/weak/llmail_inject_challenge/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=0.022 F1=0.043 on 2000 positives — rules barely
+  fire on adversarial English, needs a learned/LLM detector for recall)
 
 ### [ ] `deepset/prompt-injections`
 
@@ -317,17 +409,50 @@ Human review focus:
 - short ambiguous instructions
 - rule false positives caused by ordinary instruction text
 
+State:
+
+- 2026-06-17: download + inspect + convert done. `download_`/`inspect_`/
+  `convert_deepset_prompt_injections.py` added; raw persisted to
+  `data/safety_v0/raw/deepset_prompt_injections/` (train 546 / test 116).
+- Language: corpus is EN+DE, no Vietnamese. Converter filters to English/
+  Vietnamese via `src/pipeline/Datasets/language.py` (langdetect, strict).
+  Kept 351 of 662 English rows (train 287 / test 64; 154 attack / 197 benign);
+  311 dropped (222 German + other-language/undetectable). Converted output
+  validates 351/351.
+- Mapping: `prompt_injection` from gold label; `political`/`religious` left
+  `null` (no topic gold); visual/PII axes asserted `False` for these text
+  prompts. Attack rows carry a whole-text `prompt_injection_span`.
+- Tests: `tests/test_convert_deepset_prompt_injections.py`,
+  `tests/test_language_filter.py`.
+
 Completion notes:
 
-- write `docs/datasets/deepset_prompt_injections.md`
+- write `docs/datasets/deepset_prompt_injections.md` (done)
 - converter output:
   `data/safety_v0/converted/deepset_prompt_injections/source_canonical.jsonl`
+  (done, English-only)
 - weak-label output:
-  `data/safety_v0/weak/deepset_prompt_injections/weak_labeled.jsonl`
+  `data/safety_v0/weak/deepset_prompt_injections/weak_labeled.jsonl` (done: rule
+  detector run; vs gold P=1.0 R=0.084 F1=0.156 on 351 rows — high precision, low
+  recall on English attacks)
 
-### [ ] `facebook/cyberseceval3-visual-prompt-injection`
+### [x] `facebook/cyberseceval3-visual-prompt-injection`
 
 Decision: accept after sample inspection.
+
+State: converted (999 rows). Inspected: no image binaries ship — text-only rows
+(user_input_text + image's image_text/image_description), 1 config / 1 split (test),
+1,000 rows, all attacks (no benign control), all English. 500 direct / 500 indirect;
+risk_category 600 logic-violating / 400 security-violating; ~100 rows have empty
+image_text (scene-carried attacks). Mapped the injection to OCR text
+(input_text<-user_input_text, ocr_text<-image_text), gold prompt_injection=True,
+action=reject, visual/sexual/violence/blood_gore=False source_assumption,
+political/religious=None; CyberSecEval taxonomy kept in source_labels. has_image=False
+(no pixels) so OCR/redaction/box stages deferred until a render step. 1 row dropped
+by the language filter (id 292, minor false-drop). Weak rule detector over OCR text:
+0/999 fire (R=0.0) — Vietnamese rules don't catch English visual attacks; these are
+gold positives for a learned/multimodal detector and future translation. 999/999
+valid (converted + weak). See `docs/datasets/cyberseceval3_visual_prompt_injection.md`.
 
 Why use it: most directly aligned with visual prompt injection and should guide
 our rule-based visual prompt-injection detector.
@@ -354,9 +479,16 @@ Completion notes:
 - weak-label output:
   `data/safety_v0/weak/cyberseceval3_visual_prompt_injection/weak_labeled.jsonl`
 
-### [ ] `uitnlp/vihsd` And Related Vietnamese Hate/Toxicity Datasets
+### [x] `uitnlp/vihsd` And Related Vietnamese Hate/Toxicity Datasets
 
 Decision: accept as weak topic/safety data.
+
+State: converted. Bounded sample (2000 train / 500 dev / 1000 test = 3500) pulled
+from the parquet-indexed `phucdev/ViHSD` mirror (canonical `uitnlp/vihsd` not
+datasets-server indexed). Topic axes left null (hate taxonomy is orthogonal to our
+7 axes), prompt_injection=False + pii_visible=False source_assumptions (useful VI
+PI negatives), hate label kept in source_labels. 3500/3500 valid. Image
+rendering/OCR deferred (text-only for now). See `docs/datasets/vihsd_topic_safety.md`.
 
 Why use it: useful Vietnamese text for hate/toxicity and topic filtering, but
 it should not be blindly mapped to violence.
@@ -384,9 +516,34 @@ Completion notes:
 - weak-label output:
   `data/safety_v0/weak/vihsd_topic_safety/weak_labeled.jsonl`
 
-### [ ] `ys-zong/VLGuard`
+### [x] `ys-zong/VLGuard`
 
 Decision: accept after sample inspection.
+
+State (2026-06-18 update): bounded image slice done end to end. A diverse
+100-image slice (20 safe + 10 each of 9 harmful subcategories) was extracted via
+ranged reads from the remote zips (`scripts/safety_v0/download/extract_vlguard_images.py`,
+~14 MB on disk, no full zip download) into `data/safety_v0/raw/vlguard/images/`.
+That expands to 111 canonical rows (`converted/vlguard/review_slice.jsonl`). Ran
+English PaddleOCR (111/111 valid, 94 with text), PII redaction (0 PII / 0
+redactions — `personal data` rows are ad-style topic risk, not visible PII
+strings), and prompt-injection rules (0 hits). All three stages validate
+111/111. Found + fixed an OCR adapter bug (`_normalize` raised on empty numpy
+arrays for text-less images; regression test added). Full image set still not
+downloaded — scale up with `--limit`. See `docs/datasets/vlguard.md`.
+
+Earlier state: metadata converted and weak-labeled; image/OCR stages pending. Access was
+granted and metadata files were downloaded on 2026-06-18:
+`README.md`, `train.json`, and `test.json` under
+`data/safety_v0/raw/vlguard/`. Image zips were intentionally not downloaded
+(`train.zip`/`test.zip`, multi-GB). Inspection found 2,000 train rows and 1,000
+test rows; converter emits one canonical row per instruction-response pair,
+yielding 4,535 valid rows (train 2,977 / test 1,558). Weak prompt-injection
+stage over instructions produced 0 rule hits and 4,535/4,535 valid rows.
+Clear source mappings: `sexually explicit -> sexual=true`, `violence ->
+violence=true`, `political -> political=true`, `personal data ->
+pii_visible=true`. `blood_gore` stays unknown for violent rows because VLGuard
+does not distinguish blood/gore. See `docs/datasets/vlguard.md`.
 
 Why use it: image-rich visual safety source.
 
@@ -406,13 +563,30 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/vlguard.md`
+- write `docs/datasets/vlguard.md` (done)
 - converter output: `data/safety_v0/converted/vlguard/source_canonical.jsonl`
+  (done from metadata; image files pending)
 - weak-label output: `data/safety_v0/weak/vlguard/weak_labeled.jsonl`
+  (done for text instructions; OCR/PII stages pending image extraction)
 
-### [ ] `PKU-Alignment/MM-SafetyBench`
+### [x] `PKU-Alignment/MM-SafetyBench`
 
 Decision: accept after sample inspection.
+
+State (2026-06-18 update): public (not gated), CC BY-NC 4.0 (research-only).
+Metadata downloaded and inspected; mapping decided in
+`docs/datasets/mm_safetybench.md`. Ships per-category Parquet (not zips):
+`Text_only` (harmful question, image null, ~6-10 KB each) + `TYPO` / `SD` /
+`SD_TYPO` image splits (PNG bytes embedded in the parquet). 13 categories,
+1,680 rows per split. The harmful keyword is rendered as typography in the
+`TYPO`/`SD_TYPO` images; PaddleOCR (`--lang en`) recovers it verbatim, so the
+OCR -> PII / prompt-injection pipeline applies directly. Mapping maps only
+obvious axes (`Sex`->sexual, `Physical_Harm`->violence,
+`Political_Lobbying`/`Gov_Decision`->political), sets `action=reject` for the
+clearly-harmful categories, leaves professional-advice categories' action and
+all `prompt_injection` labels `null` (multimodal smuggling is injection-
+ambiguous). Converter + bounded image slice not built yet. The VLGuard
+ranged-zip extractor does NOT apply (parquet, not zip).
 
 Why use it: useful multimodal safety source.
 
@@ -432,11 +606,15 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/mm_safetybench.md`
+- `docs/datasets/mm_safetybench.md` (done)
 - converter output:
-  `data/safety_v0/converted/mm_safetybench/source_canonical.jsonl`
-- weak-label output:
-  `data/safety_v0/weak/mm_safetybench/weak_labeled.jsonl`
+  `data/safety_v0/converted/mm_safetybench/source_canonical.jsonl` (done, 1,680
+  text-only rows)
+- bounded image slice + OCR/PII/PI weak labels:
+  `data/safety_v0/converted/mm_safetybench/review_slice.jsonl` ->
+  `data/safety_v0/weak/mm_safetybench/weak_labeled_image_slice.jsonl` (done,
+  26-image `TYPO` slice). A full `weak/mm_safetybench/weak_labeled.jsonl` over
+  all images is pending a larger extraction.
 
 ### [ ] `yiting/UnsafeBench`
 
@@ -844,8 +1022,24 @@ Rules:
 - [ ] source counts do not exceed target mix
 - [ ] manual review overrides apply correctly
 
+## Deferred Ideas
+
+- **PII-dropout augmentation** (image PII rows -> self-labeled `pii_visible`
+  variants by toggling which real PII boxes stay visible). Parked design note:
+  `docs/pii-dropout-augmentation.md`. Do not build until the core source queue
+  below is further along.
+- **EN->VI translation augmentation** — BUILT and tested
+  (`scripts/safety_v0/run_translation_augmentation.py`,
+  `docs/translation-augmentation.md`) but PAUSED: the Gemini key is free-tier
+  (~20 requests/day), so scale translation needs billing enabled. Partial run
+  left 21 deepset twins + a populated cache; resumable once billing is on.
+
 ## Current Next Step
 
-Start with the existing repo PII datasets. They are already local to the project
-and fit the current Presidio pipeline best. After that, inspect `WebPII/webpii`
-with a small sample before writing a converter.
+MM-SafetyBench is done: converter (1,680 text-only rows) + a bounded 26-image
+`TYPO` slice through OCR -> PII -> prompt-injection, all validating
+(`docs/datasets/mm_safetybench.md`, `convert_mm_safetybench.py`,
+`extract_mm_safetybench_images.py`, `test_convert_mm_safetybench.py`). Next:
+inspect `yiting/UnsafeBench` metadata (categories, image availability, mapping
+for sexual/violence/blood-gore visual axes), write `docs/datasets/unsafebench.md`,
+decide the mapping. Do not download multi-GB image archives automatically.
