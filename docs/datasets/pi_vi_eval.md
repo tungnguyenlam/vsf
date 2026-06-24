@@ -76,3 +76,17 @@ attack-bucket false negatives.
   tightening (done 2026-06-17): `evaluate_pi_vi.py --vihsd-negatives 5000`
   confirmed the FP dropped to 0 with no new attack-bucket false negatives. Reuse
   the same command to guard future rule changes.
+- This eval set is also registered as the `pi_vi_eval` prompt-injection dataset
+  (`PiViEvalDataset`), exposing its 148 rows as labelled `PromptInjectionExample`
+  objects so a trainable detector can be scored leave-one-out on the identical
+  rows as the rule baseline. The char-ngram Naive Bayes baseline reaches
+  leave-one-out F1 `0.875` (P `0.814`, R `0.946`) here — a non-circular
+  generalization estimate, unlike the rules' coverage-by-construction `1.0`.
+- A decision-threshold sweep over the same leave-one-out scores
+  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`) shows the NB posteriors are
+  saturated near 0/1: the default 0.5 cut-off sits in a flat region, and raising
+  it to `0.999` removes only 6 false positives (16 -> 10), lifting F1 to at most
+  `0.909` while recall stays hard-capped at `0.946` (4 attacks score ~0). That
+  best-F1 threshold is selected on the eval set itself, so `0.909` is an
+  optimistic ceiling, not a deployable gain — threshold tuning cannot close the
+  gap to the rules; more diverse Vietnamese attack data is the real lever.

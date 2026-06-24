@@ -55,6 +55,33 @@ def test_unknown_backend_raises():
         get_translator("nope")
 
 
+def test_registry_lists_openrouter_with_its_endpoint_and_model():
+    from src.pipeline.Fallbacks.openrouter_fallback import (
+        DEFAULT_BASE_URL as OR_BASE_URL,
+        DEFAULT_MODEL as OR_MODEL,
+    )
+    from src.pipeline.Translation import OpenRouterTranslator
+
+    assert "openrouter" in list_translator_names()
+    tr = get_translator("openrouter", client=FakeClient())
+    assert isinstance(tr, OpenRouterTranslator)
+    # Endpoint/model come from the single-source-of-truth OpenRouter config.
+    assert tr.base_url == OR_BASE_URL
+    assert tr.model == OR_MODEL
+    # Model stays a config flip.
+    assert get_translator("openrouter", model="openai/gpt-4o-mini", client=FakeClient()).model == (
+        "openai/gpt-4o-mini"
+    )
+
+
+def test_openrouter_resolves_its_own_api_key(monkeypatch):
+    from src.pipeline.Translation import OpenRouterTranslator
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key-123")
+    assert OpenRouterTranslator()._resolve_api_key() == "or-key-123"
+
+
 def test_translate_uses_injected_client_and_returns_text():
     client = FakeClient()
     tr = GeminiTranslator(client=client)

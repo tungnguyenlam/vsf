@@ -27,11 +27,17 @@ class PromptInjectionEvaluationRunner:
         run_id = self.config.run_id or f"prompt-injection-{uuid.uuid4().hex[:8]}"
         logger = self._build_logger(run_id)
 
+        # For external training the detector is fit once on a separate dataset
+        # and reused for every eval row (a true held-out test).
+        shared_detector = (
+            self._build_external_detector() if self.config.train_strategy == "external" else None
+        )
+
         decisions = []
         counts = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
         action_counts = {"correct": 0, "total": 0}
         for index, example in enumerate(examples):
-            detector = self._build_detector(examples, holdout_index=index)
+            detector = shared_detector or self._build_detector(examples, holdout_index=index)
             result = detector.predict(example.text)
             self._update_counts(counts, predicted=result.is_injection, actual=example.is_injection)
             self._update_action_counts(action_counts, example=example, result=result)
@@ -63,10 +69,10 @@ class PromptInjectionEvaluationRunner:
         detector = get_prompt_injection_detector(self.config.detector)
         if self.config.train_strategy == "none":
             return detector
-        if self.config.train_strategy != "leave_one_out":
+        if self.config.train_strategy not in {"leave_one_out", "external"}:
             raise ValueError(
                 f"Unsupported train strategy {self.config.train_strategy!r}. "
-                "Use 'none' or 'leave_one_out'."
+                "Use 'none', 'leave_one_out', or 'external'."
             )
         if not hasattr(detector, "fit"):
             raise ValueError(
@@ -75,6 +81,30 @@ class PromptInjectionEvaluationRunner:
         train_examples = [
             example for index, example in enumerate(examples) if index != holdout_index
         ]
+        detector.fit(train_examples)
+        return detector
+
+    def _build_external_detector(self):
+        if not self.config.train_dataset:
+            raise ValueError(
+                "train_strategy='external' requires train_dataset to be set."
+            )
+        detector = get_prompt_injection_detector(self.config.detector)
+        if not hasattr(detector, "fit"):
+            raise ValueError(
+                f"Detector {self.config.detector!r} does not support training."
+            )
+        # train_dataset may name a pool of sources, comma-separated; their
+        # examples are concatenated so a detector can learn from several
+        # Vietnamese sources at once and be scored on a held-out one.
+        names = [name.strip() for name in self.config.train_dataset.split(",") if name.strip()]
+        train_examples = []
+        for name in names:
+            train_examples.extend(
+                get_prompt_injection_dataset(name).load(
+                    split="all", random_state=self.config.random_state
+                )
+            )
         detector.fit(train_examples)
         return detector
 

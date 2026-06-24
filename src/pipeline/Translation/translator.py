@@ -227,9 +227,55 @@ class GeminiTranslator(Translator):
         return (content or "").strip()
 
 
+class OpenRouterTranslator(GeminiTranslator):
+    """Translator backed by OpenRouter instead of Gemini.
+
+    Identical translate/retry behaviour to :class:`GeminiTranslator` (the call is
+    plain OpenAI-compatible chat completions); only the endpoint, default model,
+    and API-key precedence differ. Useful when the Gemini free tier is rate-capped
+    so hard that even a single call cannot land. Provider stays configuration:
+    select it with ``--backend openrouter``; override ``--model`` to pick another
+    OpenRouter model. Reuses the same single-source-of-truth OpenRouter config as
+    the fallback path.
+    """
+
+    name = "openrouter"
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        **kwargs: Any,
+    ):
+        from src.pipeline.Fallbacks.openrouter_fallback import (
+            DEFAULT_BASE_URL as OR_BASE_URL,
+            DEFAULT_MODEL as OR_MODEL,
+        )
+
+        super().__init__(
+            model=model or OR_MODEL,
+            base_url=base_url or OR_BASE_URL,
+            **kwargs,
+        )
+
+    def _resolve_api_key(self) -> Optional[str]:
+        if self.api_key:
+            return self.api_key
+        from src.pipeline.Fallbacks.openrouter_fallback import (
+            API_KEY_ENV_VARS as OR_API_KEY_ENV_VARS,
+        )
+
+        for env_var in OR_API_KEY_ENV_VARS:
+            value = os.getenv(env_var)
+            if value:
+                return value
+        return None
+
+
 # --- Registry (single source of truth for translator selection) --------------
 _TRANSLATORS = {
     "gemini": GeminiTranslator,
+    "openrouter": OpenRouterTranslator,
 }
 
 

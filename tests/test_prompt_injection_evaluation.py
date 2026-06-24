@@ -36,6 +36,139 @@ def test_local_vietnamese_app_seed_loads_examples_and_is_registered():
     assert any(example.expected_action == "block" for example in examples)
 
 
+def test_pi_vi_eval_dataset_loads_and_is_registered():
+    from src.pipeline.PromptInjection.Datasets import get_prompt_injection_dataset
+
+    assert "pi_vi_eval" in list_prompt_injection_dataset_names()
+    examples = get_prompt_injection_dataset("pi_vi_eval").load()
+
+    # Balanced set: 74 gold attacks + 46 benign seeds + 28 ViHSD negatives.
+    assert len(examples) == 148
+    assert sum(example.label for example in examples) == 74
+    assert all(example.language == "vi" for example in examples)
+    assert {example.category for example in examples} == {
+        "attack",
+        "benign_seed",
+        "benign_vihsd",
+    }
+
+
+def test_deepset_vi_dataset_loads_and_is_registered():
+    from src.pipeline.PromptInjection.Datasets import get_prompt_injection_dataset
+
+    assert "deepset_vi" in list_prompt_injection_dataset_names()
+    examples = get_prompt_injection_dataset("deepset_vi").load(split="all")
+
+    # 351 translated twins: 154 attacks + 197 benigns, all Vietnamese.
+    assert len(examples) == 351
+    assert sum(example.label for example in examples) == 154
+    assert all(example.language == "vi" for example in examples)
+    assert {example.category for example in examples} == {"attack", "benign"}
+
+
+def test_llmail_vi_dataset_loads_and_is_registered():
+    from src.pipeline.PromptInjection.Datasets import get_prompt_injection_dataset
+
+    assert "llmail_vi" in list_prompt_injection_dataset_names()
+    examples = get_prompt_injection_dataset("llmail_vi").load(split="all")
+
+    # llmail is attack-only (recall-only held-out source); the 500-row sample is
+    # all positives and all Vietnamese.
+    assert len(examples) == 500
+    assert sum(example.label for example in examples) == 500
+    assert all(example.language == "vi" for example in examples)
+
+
+def test_external_train_strategy_accepts_a_pool_of_datasets():
+    # Comma-separated train_dataset concatenates sources; the run must succeed and
+    # cover all rows of the held-out set.
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="deepset_vi",
+            split="all",
+            detector="char_ngram_prompt_injection",
+            train_strategy="external",
+            train_dataset="pi_vi_eval,local_vietnamese_seed",
+            no_log=True,
+        )
+    )
+
+    output = runner.run()
+
+    assert output["rows"] == 351
+    assert output["counts"]["tp"] + output["counts"]["fn"] == 154
+
+
+def test_external_train_strategy_runs_held_out_test():
+    # NB fit once on pi_vi_eval, scored on the held-out deepset_vi rows. The point
+    # of the strategy is a true held-out test: recall is far below the in-domain
+    # leave-one-out number, exposing the cross-source generalization gap.
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="deepset_vi",
+            split="all",
+            detector="char_ngram_prompt_injection",
+            train_strategy="external",
+            train_dataset="pi_vi_eval",
+            no_log=True,
+        )
+    )
+
+    output = runner.run()
+
+    assert output["rows"] == 351
+    # Held-out recall is materially worse than in-domain LOO (~0.80): the gap is
+    # the finding, so assert it stays in the weak-transfer regime.
+    assert output["metrics"]["recall"] < 0.6
+
+
+def test_external_train_strategy_requires_train_dataset():
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="deepset_vi",
+            split="all",
+            detector="char_ngram_prompt_injection",
+            train_strategy="external",
+            train_dataset=None,
+            no_log=True,
+        )
+    )
+
+    try:
+        runner.run()
+    except ValueError as exc:
+        assert "train_dataset" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError when train_dataset is missing.")
+
+
+def test_nb_threshold_sweep_finds_no_deployable_gain_over_default():
+    from scripts.safety_v0.sweep_pi_vi_nb_threshold import _confusion, _metrics
+
+    runner = PromptInjectionEvaluationRunner(
+        PromptInjectionEvaluationConfig(
+            dataset="pi_vi_eval",
+            detector="char_ngram_prompt_injection",
+            train_strategy="leave_one_out",
+            no_log=True,
+        )
+    )
+    decisions = runner.run()["decisions"]
+    scores_labels = [(d["score"], int(d["label"])) for d in decisions]
+
+    def f1_at(threshold):
+        return _metrics(*_confusion(scores_labels, threshold))
+
+    # Recall is hard-capped at 0.946 across the usable range: a handful of attacks
+    # score near zero, so no non-trivial threshold recovers them.
+    assert f1_at(0.5)["recall"] == f1_at(0.999)["recall"]
+    # Posteriors are saturated, so the best achievable F1 only edges past the
+    # default 0.5 cut-off by trimming a few false positives.
+    best_f1 = max(f1_at(t / 1000)["f1"] for t in range(0, 1000, 1))
+    assert f1_at(0.5)["f1"] >= 0.87
+    assert best_f1 < 0.92
+
+
 def test_local_vietnamese_mentor_seed_loads_examples_and_is_registered():
     examples = LocalVietnamesePromptInjectionMentorSeed().load()
 

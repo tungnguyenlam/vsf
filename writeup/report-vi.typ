@@ -385,6 +385,65 @@ Song song với bộ lọc quy tắc, hệ thống tích hợp bộ phân loại
 
 Kết quả cho thấy bộ lọc dựa trên quy tắc mang lại độ chính xác tuyệt đối (Precision = 1.00) trên các mẫu tiếng Việt được thiết kế sẵn, tuy nhiên khả năng bao phủ (Recall) giảm mạnh đối với các mẫu tiếng Anh và các dạng tấn công phức tạp hoặc đã qua kỹ thuật làm rối (obfuscation). Khi chạy thực nghiệm trên tập dữ liệu đối chứng với hơn 3.500 bình luận lành mạnh từ `vihsd_topic_safety`, bộ lọc không tạo ra bất kỳ trường hợp báo động giả nào sau khi thắt chặt các quy tắc phát hiện hành vi truy xuất thông tin trái phép. Điều này chứng minh giải pháp rule-based có độ tin cậy rất cao để làm bộ lọc vòng ngoài nhằm tối ưu hóa chi phí.
 
+Cần lưu ý một điểm quan trọng về điểm số tuyệt đối trên `local_vi_prompt_injection`: các quy tắc được viết tay dựa trên chính những mẫu tấn công gold này, nên Recall = 1.00 phản ánh độ bao phủ mẫu theo thiết kế chứ không phải khả năng tổng quát hóa sang các tấn công chưa từng thấy. Kết quả đáng tin cậy và không mang tính vòng lặp là độ chính xác (Precision) — không có báo động giả nào trên hơn 3.500 mẫu âm tiếng Việt thực tế.
+
+*Mô hình học máy nền (Naive Bayes trên n-gram ký tự):* Để có ước lượng tổng quát hóa không bị thiên lệch bởi sự trùng lặp khi viết quy tắc nói trên, bộ phân loại thống kê được đánh giá theo phương pháp leave-one-out trên tập cân bằng `pi_vi_eval` (mỗi dòng được dự đoán bởi một mô hình huấn luyện trên 147 dòng còn lại). Bảng dưới đây so sánh nó với bộ phát hiện dựa trên quy tắc trên cùng 148 dòng.
+
+#figure(
+  caption: [So sánh rule-based và Naive Bayes n-gram ký tự trên tập cân bằng `pi_vi_eval` (148 dòng: 74 tấn công, 46 mẫu lành mạnh thiết kế sẵn, 28 mẫu âm ViHSD). Các chỉ số Naive Bayes là leave-one-out.],
+  table(
+    columns: (1.8fr, auto, auto, auto, auto),
+    align: (left, right, right, right, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Bộ phát hiện*], [*Đánh giá*], [*Precision*], [*Recall*], [*F1*]),
+    [Rule-based (có trọng số)], [ghi nhớ], [1.000], [1.000], [1.000],
+    [Naive Bayes n-gram ký tự], [leave-one-out], [0.814], [0.946], [0.875],
+  ),
+)
+
+Khi đọc kỹ, điểm Naive Bayes leave-one-out 0.875 mới là chỉ báo trung thực hơn về khả năng tổng quát hóa, vì điểm 1.00 của rule-based là độ bao phủ theo thiết kế trên chính các mẫu tấn công gold. Mô hình học máy khôi phục được phần lớn các tấn công (Recall 0.946) mà không hề biết tới bất kỳ quy tắc từ khóa nào, nhưng lại báo động nhầm trên văn bản tiếng Việt lành mạnh (16 trường hợp dương tính giả, ví dụ kích hoạt trên các chuỗi ký tự phổ biến như "của"). Đây chính là điểm yếu mà một tập huấn luyện tiếng Việt lớn và đa dạng hơn được kỳ vọng sẽ khắc phục.
+
+Một phép quét ngưỡng quyết định trên chính các điểm số leave-one-out xác nhận rằng hiện tượng báo động nhầm này không phải do đặt sai ngưỡng. Xác suất hậu nghiệm của Naive Bayes bị bão hòa quanh 0 hoặc 1, nên ngưỡng mặc định 0.5 nằm trong một vùng phẳng; nâng ngưỡng lên 0.999 chỉ loại bỏ được sáu trường hợp dương tính giả (từ 16 xuống 10) và nâng F1 từ 0.875 lên tối đa 0.909, trong khi Recall vẫn bị giới hạn cứng ở 0.946 vì bốn mẫu tấn công có điểm gần như bằng không và bị bỏ sót ở mọi ngưỡng khả dụng. Hơn nữa, ngưỡng tối ưu F1 đó được chọn trên chính tập đánh giá, nên 0.909 là một trần lạc quan chứ không phải mức cải thiện có thể triển khai. Kết luận là việc tinh chỉnh ngưỡng chỉ giảm được vài trường hợp dương tính giả và không thể thu hẹp khoảng cách với bộ phát hiện dựa trên quy tắc trên tập dữ liệu này; muốn vậy cần thêm dữ liệu tấn công tiếng Việt đa dạng hơn, chứ không phải một điểm vận hành khác.
+
+*Tổng quát hóa trên tập kiểm tra độc lập (con số trung thực):* Mọi chỉ số ở trên đều được đo trên các mẫu tấn công mà quy tắc đã được viết để bắt, nên ngay cả điểm leave-one-out cũng chia sẻ cách diễn đạt của các mẫu gốc. Để phá vỡ tính tuần hoàn này, chúng tôi dịch bộ dữ liệu tiếng Anh `deepset/prompt-injections` sang tiếng Việt (351 dòng: 154 tấn công, 197 lành mạnh) — những cách diễn đạt tấn công mà cả quy tắc lẫn các mẫu gốc đều chưa từng thấy — rồi đánh giá cả hai bộ phát hiện trên đó. Do gói miễn phí của Gemini bị giới hạn tốc độ tới mức không dùng được, quá trình dịch chạy qua backend OpenRouter (`gpt-4o-mini`), được chọn vì nó dịch trung thực văn bản tấn công mà không tuân theo chỉ thị nhúng bên trong.
+
+#figure(
+  caption: [Tổng quát hóa trên tập `deepset` tiếng Việt (dịch máy, 351 dòng). "Huấn luyện -> Kiểm tra" cho biết dữ liệu mà mô hình học từ đó so với dữ liệu dùng để chấm điểm; bộ phát hiện dựa trên quy tắc không học gì lúc chạy nên được chấm trực tiếp.],
+  table(
+    columns: (1.5fr, 1.6fr, auto, auto, auto),
+    align: (left, left, right, right, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Bộ phát hiện*], [*Huấn luyện -> Kiểm tra*], [*Precision*], [*Recall*], [*F1*]),
+    [Rule-based], [tự viết -> deepset-vi], [1.000], [0.065], [0.122],
+    [Naive Bayes n-gram], [pi-vi-eval -> deepset-vi], [0.542], [0.292], [0.380],
+    [Naive Bayes n-gram], [local-seed -> deepset-vi], [0.646], [0.201], [0.307],
+    [Naive Bayes n-gram], [deepset-vi leave-one-out], [0.783], [0.799], [0.791],
+  ),
+)
+
+Đây mới là kết quả quan trọng. Trên các mẫu tấn công chưa từng thấy, bộ phát hiện dựa trên quy tắc chỉ bắt được 10 trên 154 mẫu (Recall 0.065) trong khi vẫn giữ Precision tuyệt đối (không có dương tính giả nào trên 197 mẫu lành mạnh tiếng Việt thật): nó là một bộ so khớp có độ chính xác cao nhưng bị khóa chặt vào đúng những cách diễn đạt đã được viết ra, và điểm 1.00 trước đó chỉ là độ bao phủ theo thiết kế. Mô hình học máy tổng quát hóa tốt hơn đôi chút giữa các nguồn (Recall 0.20–0.29) nhưng vẫn kém. Điểm tương phản quyết định nằm ở dòng cuối: khi được huấn luyện ngay trên chính `deepset-vi` (leave-one-out), cùng mô hình Naive Bayes đó đạt F1 0.791 — nghĩa là dữ liệu hoàn toàn có thể học được và khoảng cách so với thực tế triển khai là vấn đề *dữ liệu*, cụ thể là thiếu một kho ngữ liệu tấn công tiếng Việt lớn, đa dạng và đúng miền, chứ không phải giới hạn của mô hình. Đây cũng chính là lý do kỹ thuật tăng cường bằng dịch máy (mỗi mẫu tiếng Anh có nhãn trở thành một mẫu sinh đôi tiếng Việt) là đòn bẩy trung tâm cho giai đoạn tiếp theo.
+
+*Mở rộng kho huấn luyện giúp cải thiện khả năng tổng quát hóa.* Để kiểm chứng trực tiếp đòn bẩy này, chúng tôi dịch thêm một nguồn độc lập thứ hai — 500 mẫu tấn công từ thử thách `llmail-inject` (chèn lệnh gián tiếp qua email) — sang tiếng Việt và đo xem Recall trên đó thay đổi thế nào khi kho huấn luyện lớn dần. Vì nguồn này chỉ gồm các mẫu tấn công nên Recall là chỉ số có ý nghĩa.
+
+#figure(
+  caption: [Khả năng tổng quát hóa sang nguồn độc lập `llmail-vi` (500 mẫu tấn công tiếng Việt, chỉ đo Recall) khi kho huấn luyện Naive Bayes lớn dần. Recall tăng đơn điệu theo quy mô và độ đa dạng của kho dữ liệu, trong khi bộ phát hiện dựa trên quy tắc gần như không bắt được gì.],
+  table(
+    columns: (1.5fr, 2.1fr, auto),
+    align: (left, left, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Bộ phát hiện*], [*Kho huấn luyện*], [*Recall*]),
+    [Rule-based], [tự viết], [0.026],
+    [Naive Bayes n-gram], [pi-vi-eval], [0.262],
+    [Naive Bayes n-gram], [deepset-vi], [0.364],
+    [Naive Bayes n-gram], [pi-vi-eval + local seeds + deepset-vi], [0.386],
+  ),
+)
+
+Bộ quy tắc chỉ bắt được 13 trên 500 mẫu tấn công (Recall 0.026) trên phân phối hoàn toàn mới này, khẳng định rằng Precision cao của nó đi kèm với khả năng tổng quát hóa gần như bằng không. Mô hình học máy vượt trội gấp mười đến mười lăm lần, và — điểm mấu chốt — Recall của nó tăng đơn điệu khi càng nhiều dữ liệu tiếng Việt đúng miền và đa dạng được gộp vào huấn luyện: 0.262 chỉ với `pi-vi-eval`, 0.364 với `deepset-vi`, và 0.386 với kho dữ liệu kết hợp. Đây là bằng chứng tích cực cho chiến lược lấy dữ liệu làm trung tâm: mỗi nguồn tiếng Việt dịch thêm đều cải thiện rõ rệt độ bao phủ các mẫu tấn công chưa từng thấy, nên con đường đến một bộ phát hiện học máy triển khai được là tiếp tục mở rộng và đa dạng hóa kho ngữ liệu tấn công tiếng Việt thông qua tăng cường bằng dịch máy.
+
 === Hạn chế và Định hướng tiếp theo
 
 Hệ thống hiện mới chỉ tập trung phân tích các câu lệnh đơn lẻ của người dùng mà chưa đánh giá được toàn bộ ngữ cảnh lịch sử trò chuyện hoặc dòng dữ liệu phản hồi từ công cụ ngoại vi. Định hướng tiếp theo là xây dựng tập dữ liệu huấn luyện prompt injection tiếng Việt đa dạng hơn, nghiên cứu tích hợp mô hình phân loại học máy sâu (như fine-tune mô hình PhoBERT hoặc sử dụng viBERT, hoặc kết hợp biểu diễn nhúng và phân loại tuyến tính), và mở rộng phạm vi kiểm soát sang luồng dữ liệu sau khi truy xuất thông tin (RAG).

@@ -385,6 +385,65 @@ To measure false-positive rates on safe conversational inputs, a Vietnamese cont
 
 The rule-based filter achieves high precision on the targeted Vietnamese patterns, but exhibits low recall on English prompts and complex adversarial examples. When evaluated on the control dataset of over 3,500 benign Vietnamese samples from `vihsd_topic_safety`, the classifier produced zero false positives after tightening the rules for data exfiltration patterns. This demonstrates that rule-based filters are highly reliable for low-cost, high-precision first-line defenses.
 
+A crucial caveat applies to the perfect score on `local_vi_prompt_injection`: the rules were hand-authored against these same gold attacks, so a recall of 1.00 reflects pattern coverage by construction rather than generalization to unseen attacks. The credible, non-circular result is precision — zero false positives across more than 3,500 real Vietnamese negatives.
+
+*Learned baseline (character n-gram Naive Bayes):* To obtain a generalization estimate that is not biased by the authoring overlap above, the statistical classifier is evaluated leave-one-out on the balanced `pi_vi_eval` set (each row is predicted by a model trained on the other 147). The table below compares it against the rule-based detector on the identical 148 rows.
+
+#figure(
+  caption: [Rule-based vs. character n-gram Naive Bayes on the balanced `pi_vi_eval` set (148 rows: 74 attacks, 46 benign seeds, 28 ViHSD negatives). The Naive Bayes figures are leave-one-out.],
+  table(
+    columns: (1.8fr, auto, auto, auto, auto),
+    align: (left, right, right, right, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Detector*], [*Eval*], [*Precision*], [*Recall*], [*F1-score*]),
+    [Rule-based (weighted)], [memorized], [1.000], [1.000], [1.000],
+    [Char n-gram Naive Bayes], [leave-one-out], [0.814], [0.946], [0.875],
+  ),
+)
+
+Read carefully, the leave-one-out Naive Bayes score of 0.875 is the more honest indicator of generalization, since the rule-based 1.00 is coverage by construction on the same gold attacks. The learned model recovers most attacks (recall 0.946) without ever having seen any keyword rule, but it over-fires on benign Vietnamese text (16 false positives, e.g. triggering on common character sequences such as "của"), which is precisely the weakness a larger and more diverse Vietnamese training corpus is expected to close.
+
+A decision-threshold sweep over the same leave-one-out scores confirms that this over-firing is not a mis-set cut-off. The Naive Bayes posteriors are saturated near 0 or 1, so the default 0.5 threshold sits in a flat region; pushing the cut-off up to 0.999 removes only six false positives (16 down to 10) and lifts F1 from 0.875 to at most 0.909, while recall stays hard-capped at 0.946 because four attacks score near zero and are missed at any usable threshold. That best-F1 threshold is moreover selected on the evaluation set itself, so 0.909 is an optimistic ceiling rather than a deployable gain. The conclusion is that threshold tuning only shaves a handful of false positives and cannot close the gap to the rule-based detector on this corpus; doing so requires more and more diverse Vietnamese attack data, not a different operating point.
+
+*Held-out generalization (the honest number):* Every figure above is measured on attacks the rules were authored against, so even the leave-one-out score shares the seeds' phrasing. To break that circularity we translated the English `deepset/prompt-injections` benchmark into Vietnamese (351 rows: 154 attacks, 197 benigns) — attack phrasings neither the rules nor the seeds had ever seen — and evaluated both detectors on it. Because the Gemini free tier was rate-capped to the point of being unusable, the translation ran through an OpenRouter backend (`gpt-4o-mini`), selected because it translates the adversarial text faithfully without obeying the embedded instruction.
+
+#figure(
+  caption: [Held-out generalization on the translated Vietnamese `deepset` set (351 rows). "Train -> Test" names the data the detector learned from versus the data it was scored on; the rule-based detector learns nothing at runtime, so it is scored directly.],
+  table(
+    columns: (1.5fr, 1.6fr, auto, auto, auto),
+    align: (left, left, right, right, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Detector*], [*Train -> Test*], [*Precision*], [*Recall*], [*F1-score*]),
+    [Rule-based], [authored -> deepset-vi], [1.000], [0.065], [0.122],
+    [Char n-gram NB], [pi-vi-eval -> deepset-vi], [0.542], [0.292], [0.380],
+    [Char n-gram NB], [local-seed -> deepset-vi], [0.646], [0.201], [0.307],
+    [Char n-gram NB], [deepset-vi leave-one-out], [0.783], [0.799], [0.791],
+  ),
+)
+
+This is the result that matters. On unseen attacks the rule-based detector recovers only 10 of 154 (recall 0.065) while keeping perfect precision (zero false positives on 197 real Vietnamese benigns): it is a high-precision matcher locked to the exact wordings it was written for, and its earlier 1.00 was coverage by construction. The learned model transfers somewhat better across sources (recall 0.20–0.29) but still poorly. The decisive contrast is the last row: trained in-domain on `deepset-vi` itself (leave-one-out), the same Naive Bayes reaches F1 0.791 — so the data is learnable and the production gap is a *data* problem, namely the absence of a large, diverse, in-domain Vietnamese attack corpus, not a ceiling of the model. This is also why translation augmentation (one labelled English sample becomes a Vietnamese twin) is the central lever for the next phase.
+
+*Growing the training pool improves transfer.* To test that lever directly we translated a second, independent source — 500 attacks from the `llmail-inject` challenge (email-borne indirect injection) — into Vietnamese and measured how recall on it changes as the training pool grows. Because this source is attack-only, recall is the meaningful metric.
+
+#figure(
+  caption: [Transfer to the held-out `llmail-vi` source (500 Vietnamese attacks, recall-only) as the Naive Bayes training pool grows. Recall rises monotonically with pool size and diversity, while the rule-based detector barely registers.],
+  table(
+    columns: (1.5fr, 2.1fr, auto),
+    align: (left, left, right),
+    inset: 6pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Detector*], [*Training pool*], [*Recall*]),
+    [Rule-based], [authored], [0.026],
+    [Char n-gram NB], [pi-vi-eval], [0.262],
+    [Char n-gram NB], [deepset-vi], [0.364],
+    [Char n-gram NB], [pi-vi-eval + local seeds + deepset-vi], [0.386],
+  ),
+)
+
+The rules recover just 13 of 500 attacks (recall 0.026) on this never-before-seen distribution, confirming that their precision comes at the cost of essentially no generalization. The learned model beats them ten- to fifteen-fold, and — the key point — its recall climbs monotonically as more diverse in-domain Vietnamese data is pooled into training: 0.262 from `pi-vi-eval` alone, 0.364 from `deepset-vi`, and 0.386 from the combined pool. This is the positive evidence for the data-centric strategy: each additional translated Vietnamese source measurably improves coverage of unseen attacks, so the path to a deployable learned detector is to keep enlarging and diversifying the Vietnamese attack corpus through translation augmentation.
+
 === Limitations and Future Work
 
 The current system evaluates individual user prompts in isolation, without considering conversation history or tool-call responses. Future work will focus on building a larger annotated Vietnamese dataset, developing deep learning classifiers (such as fine-tuned PhoBERT or viBERT, or embedding-based linear classifiers), and extending coverage to post-retrieval (RAG) contexts.

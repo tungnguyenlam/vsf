@@ -14,6 +14,7 @@ class PromptInjectionEvaluationConfig:
     include_source_text: bool = False
     run_id: str | None = None
     train_strategy: str = "none"
+    train_dataset: str | None = None
 
     @classmethod
     def from_args(cls, args):
@@ -28,4 +29,5 @@ class PromptInjectionEvaluationConfig:
             include_source_text=args.include_source_text,
             run_id=args.run_id,
             train_strategy=args.train_strategy,
+            train_dataset=getattr(args, "train_dataset", None),
         )

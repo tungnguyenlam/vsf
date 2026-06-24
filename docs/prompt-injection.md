@@ -104,6 +104,9 @@ Current datasets:
 | `local_vietnamese_app_seed` | `data/prompt_injection/vietnamese_app_seed.jsonl` | Application-shaped Vietnamese smoke set for support/tool/RAG scenarios |
 | `local_vietnamese_mentor_seed` | `data/prompt_injection/vietnamese_mentor_seed.jsonl` | Mentor/application-style Vietnamese smoke set for demo and review prompts |
 | `hf_prompt_injection_multilingual` | `rikka-snow/prompt-injection-multilingual` | Optional public HF cross-language smoke benchmark |
+| `pi_vi_eval` | `data/safety_v0/eval/pi_vi/eval.jsonl` | Balanced Vietnamese eval set (74 gold attacks + 46 benign seeds + 28 ViHSD negatives); ground truth from the `eval.label` block. Same 148 rows the rule detector is scored on |
+| `deepset_vi` | `data/safety_v0/augmented/deepset_prompt_injections/augmented.jsonl` | Held-out Vietnamese set: 351 translated `deepset` twins (154 attacks + 197 benigns) the rules were NOT authored against — the non-circular generalization estimate |
+| `llmail_vi` | `data/safety_v0/augmented/llmail_inject_challenge/augmented.jsonl` | Second held-out source: 500 translated `llmail-inject` twins, attack-only (recall-only); used to show transfer improves as the training pool grows |
 
 Run the local Vietnamese seed benchmark:
 
@@ -318,11 +321,71 @@ On the current repo-owned Vietnamese seed set, the rule detector still wins:
   accuracy `0.707692`, precision `0.8125`, recall `0.666667`, F1 `0.732394`
 - `char_ngram_prompt_injection` with leave-one-out on
   `local_vietnamese_mentor_seed`: accuracy `0.28`, recall `0.133333`
+- On the balanced `pi_vi_eval` set (148 rows), the leave-one-out Naive Bayes
+  baseline reaches precision `0.8140`, recall `0.9459`, F1 `0.8750`
+  (tp=70 fp=16 fn=4 tn=58), while the rule detector scores `1.0` — but the
+  rule `1.0` is coverage by construction (the rules were authored against these
+  same gold attacks), so the leave-one-out `0.875` is the more honest
+  generalization estimate. Reproduce with:
 
-That does not mean regex is sufficient in production. It means the current
-seed datasets are small and heavily aligned with the hand-written rules, so a
-real learned detector needs a broader Vietnamese training set before it can be
-judged fairly.
+```bash
+PYTHONPATH=. python scripts/evaluate_prompt_injection.py \
+  --dataset pi_vi_eval --detector char_ngram_prompt_injection \
+  --train-strategy leave_one_out --no-log
+```
+
+- A decision-threshold sweep over those same leave-one-out scores
+  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`) shows the NB posteriors are
+  saturated near 0/1: the default `0.5` cut-off is in a flat region, and raising
+  it to `0.999` only removes 6 false positives (16 -> 10), lifting F1 to at most
+  `0.909` while recall stays hard-capped at `0.946` (4 attacks score ~0). That
+  best-F1 threshold is fit on the eval set, so `0.909` is an optimistic ceiling,
+  not a deployable gain. Threshold tuning cannot close the gap to the rules;
+  more diverse Vietnamese attack data is the real lever. Reproduce with:
+
+```bash
+PYTHONPATH=. python scripts/safety_v0/sweep_pi_vi_nb_threshold.py
+```
+
+- **Held-out generalization on `deepset_vi`** (351 Vietnamese rows the rules were
+  NOT authored against; translated EN->VI via openrouter/gpt-4o-mini). This is
+  the non-circular number the `pi_vi_eval` overfit warning was waiting for:
+
+  | Detector | Train -> Test | P | R | F1 |
+  |---|---|---|---|---|
+  | Rule-based | authored -> deepset_vi | 1.000 | 0.065 | 0.122 |
+  | Char n-gram NB | pi_vi_eval -> deepset_vi | 0.542 | 0.292 | 0.380 |
+  | Char n-gram NB | local_vi_seed -> deepset_vi | 0.646 | 0.201 | 0.307 |
+  | Char n-gram NB | deepset_vi leave-one-out (in-domain) | 0.783 | 0.799 | 0.791 |
+
+  The rules catch only 10 of 154 unseen attacks (recall 0.065) at perfect
+  precision; cross-source NB transfer is weak (F1 0.31–0.38); but NB trained
+  in-domain reaches F1 0.791, so the data is learnable and the gap is a **data**
+  problem (diverse in-domain Vietnamese attacks), not a model ceiling. Reproduce
+  with the commands in [datasets/deepset_vi.md](datasets/deepset_vi.md).
+
+- **Transfer to a second, independent source `llmail_vi`** (500 translated
+  `llmail-inject` attacks, recall-only) confirms growing the training pool is the
+  lever. Recall climbs monotonically with pool size/diversity:
+
+  | Detector | Train | Recall (of 500) |
+  |---|---|---|
+  | Rule-based | authored | 0.026 (13) |
+  | Char n-gram NB | pi_vi_eval | 0.262 (131) |
+  | Char n-gram NB | deepset_vi | 0.364 (182) |
+  | Char n-gram NB | pi_vi_eval + local seeds + deepset_vi | 0.386 (193) |
+
+  The rules collapse to 0.026 on this novel source; NB beats them 10–15x and
+  improves as more diverse in-domain Vietnamese data is pooled in. The
+  `--train-strategy external --train-dataset a,b,c` flag trains on a pool of
+  sources and scores a held-out one. See
+  [datasets/llmail_vi.md](datasets/llmail_vi.md).
+
+That does not mean regex is sufficient in production. The `deepset_vi` held-out
+numbers make this concrete: the seed datasets are small and heavily aligned with
+the hand-written rules, so the rules' 1.0 is coverage-by-construction and
+collapses to 0.065 recall on unseen attacks. A real learned detector needs a
+broader, in-domain Vietnamese training set before it can be judged fairly.
 
 ## Next Steps
 

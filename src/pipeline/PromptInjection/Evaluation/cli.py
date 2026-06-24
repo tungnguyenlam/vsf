@@ -32,7 +32,16 @@ def create_arg_parser():
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--include-source-text", action="store_true")
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--train-strategy", default="none", choices=["none", "leave_one_out"])
+    parser.add_argument(
+        "--train-strategy",
+        default="none",
+        choices=["none", "leave_one_out", "external"],
+    )
+    parser.add_argument(
+        "--train-dataset",
+        default=None,
+        help="Dataset to fit on when --train-strategy external (held-out test).",
+    )
     return parser
 
 

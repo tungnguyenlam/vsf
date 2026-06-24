@@ -1516,3 +1516,93 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - **What changed**: Opened PR #1 (https://github.com/tungnguyenlam/vsf/pull/1) merging `feat/safety-v0-review-ui` into master — 7 commits of safety_v0 work (VLM safety router, image/OCR redaction pipeline, human-review Annotate UI, PI rules + NB classifier, new datasets MM-SafetyBench/VLGuard/WebPII/PI seeds, translation augmentation, updated Typst writeup).
 - **What was verified**: Branch already pushed to origin and up-to-date; confirmed all new datasets have docs/datasets/*.md and the router/pipeline are documented; 24 new test files present; no pre-existing PR for the branch.
 - **Residual risk**: PR not yet code-reviewed or run through full test suite (heavyweight model/dataset downloads kept optional). Reviewer should run /code-review and CI before merge.
+
+## 2026-06-25
+- **What changed**: No file changes. Verified the Prompt Injection evaluation numbers already cited in `writeup/report.typ` and `writeup/report-vi.typ` by independently re-running the rule-based detector.
+- **What was verified**: Re-ran `scripts/safety_v0/evaluate_pi_vi.py` (rule_based_prompt_injection). Reproduced the table exactly: `local_vi_prompt_injection` n=120 P/R/F1=1.00/1.00/1.00; `deepset_prompt_injections` n=351 P=1.00 R=0.084 F1=0.156; `llmail_inject_challenge` n=2000 P=1.00 R=0.022 F1=0.043. Built a negative-heavy eval set (3,546 real vihsd negatives + 46 hard benign seeds) and confirmed 0 false positives -> precision 1.00, matching the "over 3,500 benign Vietnamese samples, zero false positives" claim in the report. Also ran `cyberseceval3_visual_prompt_injection` (n=999, recall 0.0 on text-only) — correctly excluded from the table since its attacks live in the image, not text. Full test suite green (276 passed, 1 skipped).
+- **Caveat (honest framing)**: In-domain Vietnamese recall=1.00 is coverage-by-construction (the rules were authored against the same gold seeds). The credible, non-circular result is precision: 0 FP across 3,743 real negatives (VI + EN). Recall does not transfer to unseen/English attacks, which is exactly the motivation for the learned char-ngram NB classifier and a larger Vietnamese attack corpus.
+- **Residual risk**: The char-ngram Naive Bayes detector (`char_ngram_prompt_injection`) is described in the report but not yet trained/evaluated; a leakage-free eval needs a held-out Vietnamese attack split that the current 74-attack seed set is too small to provide.
+
+## 2026-06-25
+- **What changed**: Produced the first leakage-free evaluation of the learned prompt-injection baseline (char-ngram Naive Bayes) and added it to the writeup. New `PiViEvalDataset` (`src/pipeline/PromptInjection/Datasets/PiViEvalDataset.py`, registered as `pi_vi_eval`) exposes the balanced 148-row `pi_vi_eval` set (74 attacks / 46 benign seeds / 28 ViHSD negatives) as `PromptInjectionExample` rows, so the existing `--train-strategy leave_one_out` harness can train+score NB on the identical rows as the rule baseline. Added a focused test, a rule-vs-NB comparison table + honest framing to `writeup/report.typ` and `writeup/report-vi.typ`, and updated `docs/prompt-injection.md` and `docs/datasets/pi_vi_eval.md`.
+- **What was verified**: NB leave-one-out on `pi_vi_eval`: P=0.8140 R=0.9459 F1=0.8750 (tp=70 fp=16 fn=4 tn=58); rules (memorized) P=R=F1=1.00 on the same 148 rows. The LOO 0.875 is the non-circular generalization estimate (rules' 1.00 is coverage-by-construction on the same gold attacks). Both Typst reports compile cleanly. Full suite green: 277 passed.
+- **Translation augmentation attempt**: Started full deepset EN->VI augmentation to grow the Vietnamese attack corpus; the `gemini-flash-latest` translator is rate-limited (8-60s backoff on 429s), so ~24/351 rows in ~15 min — impractical. Killed it; translations are cached (`data/safety_v0/manifests/translation_cache.json`) so a future rerun resumes free. The partial `data/safety_v0/augmented/deepset_prompt_injections/augmented.jsonl` (git-ignored) is incomplete and was NOT used for the NB eval; the NB result uses only stable on-disk data.
+- **Residual risk**: The 148-row NB result is small-sample; the 16 FP show NB over-fires on benign Vietnamese n-grams (e.g. "của"). A larger/diverse Vietnamese attack corpus (the deferred deepset/llmail translation, run under a higher Gemini quota or in small rate-limited batches) is still the path to a fairer learned-detector comparison.
+
+## 2026-06-25 — NB decision-threshold sweep on pi_vi_eval
+- Added scripts/safety_v0/sweep_pi_vi_nb_threshold.py: runs the char-ngram NB
+  leave-one-out once on pi_vi_eval (148 rows), then sweeps thresholds offline
+  (grid + observed score boundaries), reporting P/R/F1/confusion per threshold
+  plus the F1-optimal and default(0.5) rows; optional --metrics JSON dump.
+- Finding: NB posteriors are saturated near 0/1. Default 0.5 sits in a flat
+  region. Raising the cut-off to 0.999 removes only 6 FP (16->10), lifting F1
+  from 0.875 to at most 0.909; recall stays hard-capped at 0.946 (4 attacks
+  score ~0, missed at any usable threshold). Best-F1 threshold is fit on the
+  eval set, so 0.909 is an optimistic ceiling, not a deployable gain.
+- Conclusion: threshold tuning cannot close the gap to the rule baseline on this
+  corpus; more diverse Vietnamese attack data is the real lever.
+- Integrated into writeup/report.typ and report-vi.typ (new paragraph after the
+  NB comparison table; both PDFs recompiled cleanly), docs/datasets/pi_vi_eval.md,
+  and docs/prompt-injection.md (with reproduce command).
+- Verified: added test_nb_threshold_sweep_finds_no_deployable_gain_over_default
+  in tests/test_prompt_injection_evaluation.py; full PI eval suite 15 passed.
+- Residual risk: sweep is on the 148-row balanced set only; precision ceiling
+  may shift on a negative-heavy or larger set. No LLM budget spent.
+
+## 2026-06-25 — Held-out Vietnamese PI generalization (deepset_vi)
+- Unblocked translation augmentation: added an `openrouter` translator backend
+  (OpenRouterTranslator in src/pipeline/Translation/translator.py, registered;
+  exported from package; reuses the OpenRouter fallback's base_url/model/key as
+  single source of truth). Selected via `--backend openrouter`. This bypasses the
+  Gemini free-tier rate-limit wall (even one call could not land).
+- Model choice: `openai/gpt-4o-mini` (~0.9s/call, faithful, refuses to OBEY the
+  injection) over default xiaomi/mimo-v2.5 (~19s/call reasoning model) and over
+  mistral-small (which followed the injection instead of translating).
+- Translated all 351 deepset rows EN->VI (154 attacks + 197 benigns), 0 failed,
+  0 invalid -> data/safety_v0/augmented/deepset_prompt_injections/augmented.jsonl.
+- Added DeepsetViDataset (registered `deepset_vi`, translated twins only) and an
+  `external` train strategy (+ --train-dataset CLI) to the eval runner/config:
+  fit once on a separate dataset, score every eval row = a true held-out test.
+- Held-out results (the non-circular number that was missing):
+    rule-based authored -> deepset_vi: P 1.000 R 0.065 F1 0.122 (10/154, 0 FP)
+    NB pi_vi_eval -> deepset_vi:        P 0.542 R 0.292 F1 0.380
+    NB local_seed -> deepset_vi:        P 0.646 R 0.201 F1 0.307
+    NB deepset_vi leave-one-out:        P 0.783 R 0.799 F1 0.791 (in-domain)
+  Conclusion: rules' 1.0 was overfit (collapses to 0.065 recall on unseen
+  attacks); cross-source NB transfer is weak; but in-domain NB hits 0.79, so the
+  gap is a DATA problem (diverse in-domain VI attacks), not a model ceiling.
+- Integrated: docs/datasets/deepset_vi.md (new) + index; docs/prompt-injection.md
+  (table + datasets row); both writeup reports (new held-out table + analysis,
+  recompiled clean); output/safety_v0/deepset_vi/heldout_results.json.
+- Verified: added tests (deepset_vi load, external strategy run + missing-train
+  guard, openrouter backend registration/key); full suite 283 passed, 1 skipped.
+- Cost: 351 gpt-4o-mini translations (negligible, well under $0.10). Residual
+  risk: VI labels inherited via translation (provenance *_translated), not
+  hand-verified per row.
+
+## 2026-06-25 — Pooled-training transfer + second held-out source (llmail_vi)
+- Translated 500 llmail-inject rows EN->VI (openrouter/gpt-4o-mini, 0 failed/0
+  invalid, 430 new calls). llmail is attack-only -> recall-only held-out source.
+  Added LlmailViDataset (registered `llmail_vi`, translated twins only).
+- Extended the eval runner's `external` strategy to accept a comma-separated
+  POOL of train datasets (concatenate, then fit once); CLI --train-dataset takes
+  "a,b,c". Tests added for the pool + llmail_vi load.
+- Transfer experiments on llmail_vi (recall, of 500 attacks):
+    rule-based authored:                 0.026 (13)   <- collapses on novel source
+    NB pi_vi_eval:                       0.262 (131)
+    NB deepset_vi:                       0.364 (182)
+    NB pool(pi_vi_eval+local+deepset_vi):0.386 (193)
+- Also checked pooling on deepset_vi held-out: pool 0.302 vs pi_vi_eval-alone
+  0.380 (dilution HURT there). Reconciled: on the SAME held-out distribution the
+  single best in-domain source wins; on a NOVEL source (llmail_vi) diversity
+  helps and recall climbs monotonically with pool size.
+- Finding: rules don't generalize (0.026-0.065 recall on unseen sources); NB
+  beats them 10-15x and improves monotonically as the VI training pool grows ->
+  translation augmentation is the confirmed data-centric lever.
+- Integrated: docs/datasets/llmail_vi.md (new) + index; docs/prompt-injection.md
+  (table + datasets row); both reports (new transfer table + analysis,
+  recompiled clean); output/safety_v0/llmail_vi/transfer_results.json.
+- Verified: full suite 285 passed, 1 skipped.
+- Cost: ~430 gpt-4o-mini calls (negligible). Residual risk: llmail_vi is
+  recall-only (no benigns) so cannot detect over-firing; only 500/2000 rows
+  translated; VI labels inherited via translation (not hand-verified).

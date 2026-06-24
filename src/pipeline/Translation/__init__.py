@@ -1,5 +1,6 @@
 from src.pipeline.Translation.translator import (
     GeminiTranslator,
+    OpenRouterTranslator,
     Translator,
     get_translator,
     list_translator_names,
@@ -7,6 +8,7 @@ from src.pipeline.Translation.translator import (
 
 __all__ = [
     "GeminiTranslator",
+    "OpenRouterTranslator",
     "Translator",
     "get_translator",
     "list_translator_names",
