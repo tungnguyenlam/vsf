@@ -1620,3 +1620,23 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Residual risk: numbers are exact, but the report shows 3-decimal rounding; the
   test allows rounding error so a future small refactor (e.g. test ordering in
   the pool) cannot silently drift the cited numbers.
+
+## 2026-06-25 — One-command reproducer for every PI eval number in the report
+- Extended scripts/safety_v0/run_heldout_evaluation.py: now also runs the
+  pi_vi_eval in-domain (rule vs NB LOO) and the threshold sweep, so a single
+  command reproduces every PI eval number cited in report.typ / report-vi.typ.
+  Writes four JSONs:
+    output/safety_v0/pi_vi_eval/in_domain_results.json
+    output/safety_v0/pi_vi_eval/nb_threshold_sweep.json
+    output/safety_v0/deepset_vi/heldout_results.json
+    output/safety_v0/llmail_vi/transfer_results.json
+- Lifted the threshold-sweep helpers into a reusable sweep_thresholds() in
+  scripts/safety_v0/sweep_pi_vi_nb_threshold.py; the standalone CLI still
+  works (existing test imports preserved).
+- Extended test_heldout_reproducer_matches_writeup_tables to pin the in-domain
+  numbers (rule 1.000; NB LOO P=0.814 R=0.946 F1=0.875) and the sweep ceiling
+  (best F1 <= 0.909 with recall still 0.946, fp <= 10).
+- Updated docs/prompt-injection.md and docs/datasets/pi_vi_eval.md to point at
+  the unified reproducer as the recommended path.
+- Verified: re-ran run_heldout_evaluation.py; every reported number reproduces.
+  Full suite 286 passed, 1 skipped. No LLM spend.

@@ -83,7 +83,8 @@ attack-bucket false negatives.
   leave-one-out F1 `0.875` (P `0.814`, R `0.946`) here — a non-circular
   generalization estimate, unlike the rules' coverage-by-construction `1.0`.
 - A decision-threshold sweep over the same leave-one-out scores
-  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`) shows the NB posteriors are
+  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`, also run by
+  `scripts/safety_v0/run_heldout_evaluation.py`) shows the NB posteriors are
   saturated near 0/1: the default 0.5 cut-off sits in a flat region, and raising
   it to `0.999` removes only 6 false positives (16 -> 10), lifting F1 to at most
   `0.909` while recall stays hard-capped at `0.946` (4 attacks score ~0). That

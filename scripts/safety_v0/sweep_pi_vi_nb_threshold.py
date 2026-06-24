@@ -49,6 +49,32 @@ def _metrics(tp, fp, tn, fn):
     }
 
 
+def sweep_thresholds(scores_labels, step: float = 0.05) -> list[dict]:
+    """Return a list of {threshold, tp, fp, tn, fn, metrics} rows.
+
+    Candidate thresholds are a regular grid (``step``) unioned with every observed
+    score boundary, so the F1-optimal cut-off is not missed between grid points.
+    """
+    grid = [round(i * step, 4) for i in range(int(1 / step) + 1)]
+    boundaries = sorted({round(s, 6) for s, _ in scores_labels})
+    thresholds = sorted(set(grid) | set(boundaries))
+
+    rows = []
+    for threshold in thresholds:
+        tp, fp, tn, fn = _confusion(scores_labels, threshold)
+        rows.append(
+            {
+                "threshold": threshold,
+                "tp": tp,
+                "fp": fp,
+                "tn": tn,
+                "fn": fn,
+                **_metrics(tp, fp, tn, fn),
+            }
+        )
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", default="pi_vi_eval")
@@ -68,17 +94,7 @@ def main():
     output = runner.run()
     scores_labels = [(d["score"], int(d["label"])) for d in output["decisions"]]
 
-    # Candidate thresholds: a regular grid plus every observed score boundary so
-    # the F1-optimal cut-off is not missed between grid points.
-    grid = [round(i * args.step, 4) for i in range(int(1 / args.step) + 1)]
-    boundaries = sorted({round(s, 6) for s, _ in scores_labels})
-    thresholds = sorted(set(grid) | set(boundaries))
-
-    rows = []
-    for threshold in thresholds:
-        tp, fp, tn, fn = _confusion(scores_labels, threshold)
-        rows.append({"threshold": threshold, "tp": tp, "fp": fp, "tn": tn, "fn": fn, **_metrics(tp, fp, tn, fn)})
-
+    rows = sweep_thresholds(scores_labels, step=args.step)
     best = max(rows, key=lambda r: (r["f1"], r["precision"]))
     default = next((r for r in rows if abs(r["threshold"] - 0.5) < 1e-9), None)
 

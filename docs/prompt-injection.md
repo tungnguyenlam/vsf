@@ -335,16 +335,25 @@ PYTHONPATH=. python scripts/evaluate_prompt_injection.py \
 ```
 
 - A decision-threshold sweep over those same leave-one-out scores
-  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`) shows the NB posteriors are
+  (`scripts/safety_v0/sweep_pi_vi_nb_threshold.py`, also run by
+  `scripts/safety_v0/run_heldout_evaluation.py`) shows the NB posteriors are
   saturated near 0/1: the default `0.5` cut-off is in a flat region, and raising
   it to `0.999` only removes 6 false positives (16 -> 10), lifting F1 to at most
   `0.909` while recall stays hard-capped at `0.946` (4 attacks score ~0). That
   best-F1 threshold is fit on the eval set, so `0.909` is an optimistic ceiling,
   not a deployable gain. Threshold tuning cannot close the gap to the rules;
-  more diverse Vietnamese attack data is the real lever. Reproduce with:
+  more diverse Vietnamese attack data is the real lever. Reproduce the sweep
+  alone with:
 
 ```bash
 PYTHONPATH=. python scripts/safety_v0/sweep_pi_vi_nb_threshold.py
+```
+
+Or reproduce every PI eval number cited in this report (in-domain, sweep, and
+both held-out sources) in a single command:
+
+```bash
+PYTHONPATH=. python scripts/safety_v0/run_heldout_evaluation.py
 ```
 
 - **Held-out generalization on `deepset_vi`** (351 Vietnamese rows the rules were

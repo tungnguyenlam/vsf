@@ -143,20 +143,60 @@ def test_external_train_strategy_requires_train_dataset():
 
 
 def test_heldout_reproducer_matches_writeup_tables():
-    # Pin the held-out numbers in writeup/report.typ and writeup/report-vi.typ to
-    # what scripts/safety_v0/run_heldout_evaluation.py actually produces from
-    # the cached translations. Run the script (no LLM spend; reads on-disk JSONL)
-    # and assert the headline numbers (allow 3-decimal rounding vs the report).
+    # Pin every prompt-injection number in writeup/report.typ and
+    # writeup/report-vi.typ to what scripts/safety_v0/run_heldout_evaluation.py
+    # actually produces from the on-disk data. Run the full reproducer (no LLM
+    # spend; reads on-disk JSONL and the in-domain eval file) and assert the
+    # headline numbers (allow 3-decimal rounding vs the report).
     from scripts.safety_v0.run_heldout_evaluation import (
         evaluate_deepset_vi,
         evaluate_llmail_vi,
+        evaluate_pi_vi_eval,
+        evaluate_pi_vi_eval_threshold_sweep,
     )
 
+    pi_vi = evaluate_pi_vi_eval()
+    sweep = evaluate_pi_vi_eval_threshold_sweep()
     deepset = evaluate_deepset_vi()
     llmail = evaluate_llmail_vi()
 
     def _close(actual: float, expected: float, places: int = 3) -> bool:
         return round(actual, places) == round(expected, places)
+
+    # pi_vi_eval in-domain: rules 1.000 (memorized); NB LOO P=0.814 R=0.946 F1=0.875.
+    by_train = {(run["detector"], run["train"]): run for run in pi_vi["runs"]}
+    assert _close(
+        by_train[("rule_based_prompt_injection", "authored (none)")]["f1"], 1.0
+    )
+    assert _close(
+        by_train[("rule_based_prompt_injection", "authored (none)")]["recall"], 1.0
+    )
+    assert _close(
+        by_train[
+            ("char_ngram_prompt_injection", "leave-one-out (in-domain)")
+        ]["precision"],
+        0.814,
+    )
+    assert _close(
+        by_train[
+            ("char_ngram_prompt_injection", "leave-one-out (in-domain)")
+        ]["recall"],
+        0.946,
+    )
+    assert _close(
+        by_train[
+            ("char_ngram_prompt_injection", "leave-one-out (in-domain)")
+        ]["f1"],
+        0.875,
+    )
+
+    # pi_vi_eval threshold sweep: default 0.5 -> F1=0.875; best-F1 -> <=0.909
+    # with recall still capped at 0.946 (4 attacks score ~0).
+    assert _close(sweep["default_threshold"]["f1"], 0.875)
+    assert _close(sweep["default_threshold"]["recall"], 0.946)
+    assert _close(sweep["best_f1_threshold"]["recall"], 0.946)
+    assert sweep["best_f1_threshold"]["f1"] <= 0.91
+    assert sweep["best_f1_threshold"]["fp"] <= 10
 
     # deepset_vi: rules 1.000/0.065/0.122; NB cross-source 0.380/0.307; in-domain 0.791.
     by_train = {(run["detector"], run["train"]): run for run in deepset["runs"]}
