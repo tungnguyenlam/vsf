@@ -1511,3 +1511,8 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - **What changed**: Modified the table column widths in `writeup/report-vi.typ` and `writeup/report.typ` from `(auto, 1.3fr, ...)` to `(0.6fr, 1.3fr, ...)` to make the first column narrower and force wrapping on long safety task titles. Compiled Typst files.
 - **What was verified**: Successfully compiled Typst reports to PDF and checked execution.
 - **Residual risk**: None.
+
+## 2026-06-25
+- **What changed**: Opened PR #1 (https://github.com/tungnguyenlam/vsf/pull/1) merging `feat/safety-v0-review-ui` into master — 7 commits of safety_v0 work (VLM safety router, image/OCR redaction pipeline, human-review Annotate UI, PI rules + NB classifier, new datasets MM-SafetyBench/VLGuard/WebPII/PI seeds, translation augmentation, updated Typst writeup).
+- **What was verified**: Branch already pushed to origin and up-to-date; confirmed all new datasets have docs/datasets/*.md and the router/pipeline are documented; 24 new test files present; no pre-existing PR for the branch.
+- **Residual risk**: PR not yet code-reviewed or run through full test suite (heavyweight model/dataset downloads kept optional). Reviewer should run /code-review and CI before merge.

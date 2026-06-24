@@ -28,6 +28,11 @@ Default workflow:
 - Keep heavyweight model downloads, dataset downloads, and integration tests optional unless the user asks to run them.
 - For this project, default to Vietnamese-only behavior unless the user explicitly asks to add English support.
 
+## Version control and execution
+
+- Work directly on the default branch (`master`). The user works alone; do not create feature branches or open PRs unless explicitly asked. Commit straight to `master`.
+- Do not use subagents (the Agent / Task tool). Do the work directly in the main session.
+
 ## Datasets
 
 Each evaluation dataset is a `BaseDataset` subclass under `src/pipeline/Datasets/` (registered in `registry.py`) that owns its source location, column schema, and its own `label_to_presidio` mapping — every dataset has a different label taxonomy, so the mapping lives with the dataset, not in a global dict. Combining datasets later is just instantiating several and concatenating their loaded frames.
