@@ -70,6 +70,20 @@ def test_paddle_normalize_v3_dict_output():
     assert result.segments[1].confidence == 0.97
 
 
+def test_paddle_normalize_v3_dict_empty_arrays():
+    """A text-less image yields empty numpy arrays; must not raise on truthiness."""
+    import numpy as np
+
+    raw = [{
+        "rec_texts": np.array([], dtype=object),
+        "rec_scores": np.array([], dtype=float),
+        "rec_polys": np.array([]),
+    }]
+    result = PaddleOcrAdapter._normalize(raw)
+    assert result.full_text == ""
+    assert result.segments == []
+
+
 def test_registry():
     assert "paddleocr" in list_ocr_adapter_names()
     assert isinstance(get_ocr_adapter("paddleocr"), PaddleOcrAdapter)

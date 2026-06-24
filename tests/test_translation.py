@@ -145,3 +145,110 @@ def test_gives_up_after_max_retries():
     )
     with pytest.raises(RateLimitError):
         tr.translate("hi")
+
+
+# --- OpenRouter fallback ----------------------------------------------------
+class AlwaysFailingClient:
+    """A Gemini-side client that raises on every call."""
+
+    def __init__(self, exc=None):
+        self._exc = exc or RateLimitError("Error code: 429 - RESOURCE_EXHAUSTED")
+        self.calls = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                raise outer._exc
+
+        self.chat = type("C", (), {"completions": _Completions()})()
+
+
+class FallbackRecorder:
+    def __init__(self, content):
+        self.calls = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                return FakeResponse(content)
+
+        self.chat = type("C", (), {"completions": _Completions()})()
+
+
+def test_fallback_used_when_gemini_exhausts_retries():
+    fallback = FallbackRecorder("VI::via-fallback")
+    tr = GeminiTranslator(
+        client=AlwaysFailingClient(),
+        fallback_client=fallback,
+        max_retries=1,
+        backoff_base=1.0,
+        sleep_fn=lambda _s: None,
+    )
+    out = tr.translate("hi")
+    assert out == "VI::via-fallback"
+    assert len(fallback.calls) == 1
+    # Fallback model defaults to the OpenRouter one from the Fallbacks package.
+    assert fallback.calls[0]["model"] == "xiaomi/mimo-v2.5"
+    # Same messages payload is forwarded (system + user).
+    roles = [m["role"] for m in fallback.calls[0]["messages"]]
+    assert roles == ["system", "user"]
+
+
+def test_fallback_can_be_disabled_via_config():
+    """Without fallback_client the original exception still propagates."""
+    tr = GeminiTranslator(
+        client=AlwaysFailingClient(),
+        max_retries=0,
+        backoff_base=1.0,
+        sleep_fn=lambda _s: None,
+    )
+    with pytest.raises(RateLimitError):
+        tr.translate("hi")
+
+
+def test_fallback_skipped_for_non_retryable_errors():
+    """A programming error must not silently hit the fallback."""
+
+    class BoomError(Exception):
+        pass
+
+    fallback = FallbackRecorder("VI::should-not-reach")
+    tr = GeminiTranslator(
+        client=AlwaysFailingClient(exc=BoomError("bad payload")),
+        fallback_client=fallback,
+        max_retries=0,
+        backoff_base=1.0,
+        sleep_fn=lambda _s: None,
+    )
+    with pytest.raises(BoomError):
+        tr.translate("hi")
+    assert fallback.calls == []
+
+
+def test_fallback_failure_re_raises_primary_error():
+    fallback = AlwaysFailingClient(exc=RuntimeError("openrouter down"))
+    tr = GeminiTranslator(
+        client=AlwaysFailingClient(),
+        fallback_client=fallback,
+        max_retries=0,
+        backoff_base=1.0,
+        sleep_fn=lambda _s: None,
+    )
+    with pytest.raises(RateLimitError):
+        tr.translate("hi")
+
+
+def test_fallback_model_override():
+    fallback = FallbackRecorder("VI::custom-model")
+    tr = GeminiTranslator(
+        client=AlwaysFailingClient(),
+        fallback_client=fallback,
+        fallback_model="anthropic/claude-3.5-sonnet",
+        max_retries=0,
+        backoff_base=1.0,
+        sleep_fn=lambda _s: None,
+    )
+    assert tr.translate("hi") == "VI::custom-model"
+    assert fallback.calls[0]["model"] == "anthropic/claude-3.5-sonnet"

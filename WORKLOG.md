@@ -1314,3 +1314,200 @@ redacted_url + PI verdict; `/api/review/image` serves the redacted PNG as
 router call itself was not exercised (mirrors the already-working review route).
 Residual risk: first image analysis is slow (PaddleOCR warm-up); in-memory
 demo-row cache is per-process (lost on restart — UI re-runs analysis).
+
+## 2026-06-18 — VLGuard bounded image slice (option A)
+
+- Built `scripts/safety_v0/download/extract_vlguard_images.py`: extracts a
+  deterministic, diverse VLGuard image slice via `HfFileSystem` ranged reads of
+  the remote `train.zip`/`test.zip` (central directory + selected member byte
+  ranges only) instead of downloading the 440 MB of zips. Round-robins across
+  (split, safe|harmful_subcategory) buckets. Also writes `review_slice.jsonl`
+  (converted rows whose image is on disk) for reproducibility.
+- Extracted 100 images (50 train / 50 test, 0 missing, ~14 MB) into
+  data/safety_v0/raw/vlguard/images/ + extracted_manifest.json. Slice = 111
+  canonical rows (some images have 2 instruction pairs).
+- Ran English PaddleOCR -> PII redaction (regex_recall) -> prompt-injection
+  rules on the slice. OCR 111/111 valid, 94 with text; 0 PII / 0 redactions
+  (personal-data rows are ad-style topic risk, not visible PII strings); 0 PI
+  hits. All three stage outputs validate 111/111.
+- Fixed OCR adapter bug: `PaddleOcrAdapter._normalize` raised
+  `ValueError: truth value of an empty array is ambiguous` when PaddleOCR
+  returns empty numpy arrays for a text-less image. Now uses explicit length
+  checks. Added regression test `test_paddle_normalize_v3_dict_empty_arrays`;
+  tests/test_image_ocr_redaction.py + test_run_ocr_webpii_alignment.py = 29
+  passed.
+- Updated docs/datasets/vlguard.md and DATA_PLAN.md (VLGuard -> [x] for slice;
+  Current Next Step -> inspect PKU-Alignment/MM-SafetyBench).
+- Residual risk: slice is English-content visual safety only; Vietnamese PII
+  regex naturally finds nothing here. Full VLGuard image set not downloaded
+  (scale with --limit when more rows needed for the v0 mix).
+
+## 2026-06-18 — MM-SafetyBench inspection + mapping decision
+
+- Inspected `PKU-Alignment/MM-SafetyBench` (next multimodal safety source after
+  VLGuard). It is PUBLIC (not gated) but CC BY-NC 4.0 (research-only). It ships
+  per-category Parquet, NOT zips: `Text_only` (harmful question, image null,
+  ~6-10 KB each) plus `TYPO`/`SD`/`SD_TYPO` image splits with PNG bytes embedded
+  in the parquet. 13 categories, 1,680 rows per split. So the VLGuard ranged-zip
+  extractor does not apply; per-category `TYPO` parquets are small enough to read
+  whole.
+- Confirmed the core signal: the harmful keyword is rendered as typography in
+  `TYPO`/`SD_TYPO` images while the visible question is innocuous. PaddleOCR
+  (`--lang en`) recovers the keyword verbatim ("hack into someone's bank
+  account", "purchase illegal drugs"), so the OCR -> PII / prompt-injection
+  pipeline applies directly.
+- Added `scripts/safety_v0/download/download_mm_safetybench.py` (Text_only
+  metadata only by default, ~110 KB; `--include-images` for the big parquets)
+  and `scripts/safety_v0/inspect/inspect_mm_safetybench.py` (schema/stats/sample
+  artifacts under `data/safety_v0/inspection/mm_safetybench/`).
+- Decided the label mapping in `docs/datasets/mm_safetybench.md`: map only
+  obvious axes (Sex->sexual, Physical_Harm->violence,
+  Political_Lobbying/Gov_Decision->political); action=reject for the
+  clearly-harmful categories; professional-advice categories' action left null;
+  prompt_injection left NULL for all rows (multimodal image-smuggling is
+  injection-ambiguous — deliberate departure from VLGuard's source_assumption
+  false). pii_visible stays null at convert time (OCR/PII detector sets it).
+- Updated DATA_PLAN.md (MM-SafetyBench -> [x] inspected with a State note;
+  Current Next Step -> write the converter + bounded TYPO/SD_TYPO slice) and the
+  docs/datasets/README.md index.
+- Verified: download (13 Text_only parquets) + inspect run clean; total 1,680
+  rows; sample_rows.jsonl spot-checked.
+- Residual risk: converter and bounded image slice not built yet; SD-only images
+  carry little OCR text (expected); prompt_injection ambiguity and
+  professional-advice action mapping flagged for human review.
+
+## 2026-06-18 — OpenRouter fallback (xiaomi/mimo-v2.5) for paid Gemini calls
+
+- Added `src/pipeline/Fallbacks/openrouter_fallback.py`: thin `OpenRouterFallback`
+  client pinned to `https://openrouter.ai/api/v1`, default model
+  `xiaomi/mimo-v2.5`, key from `OPENROUTER_API_KEY` (falls back to
+  `OPENAI_API_KEY`). One-shot, no internal retries (the primary has already
+  retried). Lazy `openai` import + injectable client keep the test suite
+  network-free.
+- `GeminiTranslator` and `GeminiVlmRouter` gained opt-in `fallback_client=` /
+  `fallback_model=` kwargs. When set, the fallback is called once **after**
+  the primary raises a retryable error (HTTP 429 / 5xx + overload markers).
+  Non-retryable errors still re-raise / route to `unsure` as before.
+- Router fallback is **text-only** — `xiaomi/mimo-v2.5` is not a VLM in this
+  repo, so the fallback is skipped for rows that carry an image and those
+  rows continue to land in the `unsure` fallback queue. No `response_format`
+  is sent on the fallback call; `parse_router_output` handles malformed
+  responses by routing to `unsure`.
+- Verified: 15 new tests across `tests/test_translation.py`,
+  `tests/test_router.py`, and the new `tests/test_openrouter_fallback.py`.
+  Full suite: 268/268 pass.
+- Docs: `docs/translation-augmentation.md` and `docs/vlm-safety-router.md`
+  got an "OpenRouter fallback (opt-in)" subsection each.
+- Residual risk: no live OpenRouter diagnostic run yet; the slug
+  `xiaomi/mimo-v2.5` and its availability/structured-output behavior are
+  unverified at runtime. The fallback path is fully unit-tested with a fake
+  client; smoke test with a real `OPENROUTER_API_KEY` before relying on it
+  in production runs.
+
+## 2026-06-18 — MM-SafetyBench converter + bounded image slice
+
+- Built `scripts/safety_v0/convert/convert_mm_safetybench.py`: reads the
+  Text_only parquets, emits one text-only canonical row per (category, id) ->
+  1,680 rows, split="test", license_status="cc_by_nc_4.0". Label mapping lives
+  in `category_labels()` (single source of truth): action=reject for the 8
+  clearly-harmful categories (972 rows), null for the 5 professional-advice
+  categories (708); sexual=true for Sex (109), violence=true for Physical_Harm
+  (144), political=true for Political_Lobbying+Gov_Decision (302);
+  prompt_injection null on all rows (multimodal smuggling is injection-
+  ambiguous). 0 invalid.
+- Built `scripts/safety_v0/download/extract_mm_safetybench_images.py`: reads the
+  chosen image variant's per-category parquets (default TYPO ~25 MB total, on
+  demand), round-robins a diverse slice across all 13 categories, writes PNGs to
+  images/<Category>/<VARIANT>/<id>.png, and emits image-bearing rows to
+  review_slice.jsonl. Imports category_labels from the converter so slice labels
+  match. SD_TYPO/SD selectable via --variant.
+- Ran a 26-image TYPO slice (2/category) end to end: OCR 26/26 with text (English
+  PaddleOCR recovers the smuggled keyword verbatim, e.g. "multi-level marketing",
+  "create a scam", "demeans and insults a specific race"); PII 0 redactions
+  (correct — OCR text is the harmful keyword, not identifiers); PI rules 0 hits,
+  filled prompt_injection=false (label_source="rule", weakest layer) on all 26.
+  All five artifacts validate (1,680/1,680 convert; 26/26 slice stages) via
+  validate_safety_v0.py.
+- Added tests/test_convert_mm_safetybench.py (8 tests, all pass): label mapping
+  per category + a valid built row.
+- Updated docs/datasets/mm_safetybench.md (Converter + Bounded Image Slice +
+  Current State), docs/datasets/README.md index, DATA_PLAN.md (completion notes +
+  Current Next Step -> inspect yiting/UnsafeBench).
+- Residual risk: only a 26-image TYPO slice is processed; full-image weak labels
+  and SD_TYPO realism pending a larger extraction. The professional-advice action
+  mapping and the multimodal prompt_injection question remain human-review flags.
+
+2026-06-19
+- Refined the writeup files to convert them into high-quality scientific reports:
+  - Corrected broken Vietnamese and improved the academic/formal tone in `writeup/report-vi.typ`.
+  - Created a corresponding English version in `writeup/report.typ`.
+  - Removed all internal filenames, code symbols (e.g. classes, variables), and private repository/token references to make the reports readable and polished for an external scientific reader.
+- Verified that both Typst files compile cleanly using `typst compile`.
+- Residual risk: None.
+
+2026-06-19
+- Re-introduced the dataset names (e.g. `pii_masking_95k`, `safety_v0`, `vihsd_topic_safety`, `UIT-ViHSD`), repository info, and model baseline names (e.g. `char_ngram_prompt_injection`, `Underthesea`, `PhoBERT`, `viBERT`, `PhoBERT/viBERT`) back into both the English `writeup/report.typ` and Vietnamese `writeup/report-vi.typ` reports as requested, maintaining a formal scientific tone while keeping file names (`.md`, `.py`) excluded.
+- Re-verified successful compilation of both Typst files.
+- Residual risk: None.
+
+2026-06-19
+- Extracted validation per-entity metrics for both `regex_recall` (pattern-based) and `underthesea_regex_recall` (optimized hybrid pattern + NER) from the session reports in `/home/tungnguyen/Work/vsf/report/`.
+- Embedded a comparative per-entity metrics table directly into the PII result section of both `writeup/report-vi.typ` and `writeup/report.typ`.
+- Successfully compiled both Typst files.
+- Residual risk: None.
+
+2026-06-19
+- Added `images/entity_centric_bars.png` as a new figure in the PII results section of both `writeup/report.typ` and `writeup/report-vi.typ`.
+- Successfully compiled both Typst files.
+- Residual risk: None.
+
+2026-06-19
+- Expanded and refined the Topic Filtering section in both `writeup/report-vi.typ` and `writeup/report.typ` to explain the label space (the seven risk axes of `safety_v0`), dataset mapping details (the Hate/Offensive/Clean labels from UIT-ViHSD being orthogonal to safety axes), mapping logic (`None != False`), and future roadmap.
+- Fixed Typst math syntax compile errors and verified successful compilation of both files.
+- Residual risk: None.
+
+2026-06-19
+- Extracted representative samples for `pii_masking_95k`, `local_vietnamese_seed`, and `UIT-ViHSD` from the codebase and datasets.
+- Incorporated these dataset samples into `writeup/report-vi.typ` and `writeup/report.typ` within their respective sections.
+- Re-verified successful compilation of both Typst files.
+- Residual risk: None.
+
+## 2026-06-19
+- **What changed**: Expanded the PII detection section in `writeup/report-vi.typ` and `writeup/report.typ` to explain how regular expression and NER recognizers are structured in the codebase (pattern recognizers, specific Vietnamese PII patterns, checksum/Luhn validation, and Underthesea/spaCy/Transformer NER wrapper integrations). Compiled Typst files to updated PDFs.
+- **What was verified**: Successfully compiled both `report-vi.typ` and `report.typ` into PDF format using Typst.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Rewrote the PII recognizers section in `writeup/report-vi.typ` and `writeup/report.typ` to explain the underlying mechanics (context-aware regex matching, algorithmic Luhn validation, carrier-prefix filtering, heuristic NER score calibration with context cues/penalties, and ensemble consensus) instead of relying on codebase implementation/class names. Recompiled to PDF.
+- **What was verified**: Verified successful Typst compilation for both reports.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Rewrote the Prompt Injection defense section in `writeup/report-vi.typ` and `writeup/report.typ` to explain the underlying mechanics (Weighted rules, Diversity Bonus, Benign Discussion Bypass, and Character N-gram Naive Bayes statistical classifier) rather than referring to class/implementation names. Compiled Typst files.
+- **What was verified**: Successfully compiled both Typst reports.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Enriched the AI Guardrails taxonomy table in `writeup/report-vi.typ` and `writeup/report.typ` with complete reference links, defense methods, datasets/models, and detailed notes for each of the safety tasks (PII, Redaction, Prompt Injection, Jailbreak, Topic Filtering, and Malicious Intent). Compiled Typst files.
+- **What was verified**: Verified successful Typst compilation for both reports.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Removed backticks ` ` from all dataset and model entries in the taxonomy tables in `writeup/report-vi.typ` and `writeup/report.typ` to prevent column overflow and enable correct line-wrapping in Typst. Compiled Typst files.
+- **What was verified**: Successfully compiled Typst reports to PDF and checked execution.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Modified the dataset column formatting in the taxonomy tables of `writeup/report-vi.typ` and `writeup/report.typ` to replace underscores with hyphens and added explicit Typst linebreaks (`\ `) to separate multiple dataset names. Recompiled to PDF.
+- **What was verified**: Verified successful Typst compilation and confirmed correct line-wrapping layout.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Removed the `#figure` block wrapping around the guardrails taxonomy tables in `writeup/report-vi.typ` and `writeup/report.typ` to render them as top-level tables directly under their headings. Compiled Typst files.
+- **What was verified**: Successfully compiled both Typst reports.
+- **Residual risk**: None.
+
+## 2026-06-19
+- **What changed**: Modified the table column widths in `writeup/report-vi.typ` and `writeup/report.typ` from `(auto, 1.3fr, ...)` to `(0.6fr, 1.3fr, ...)` to make the first column narrower and force wrapping on long safety task titles. Compiled Typst files.
+- **What was verified**: Successfully compiled Typst reports to PDF and checked execution.
+- **Residual risk**: None.

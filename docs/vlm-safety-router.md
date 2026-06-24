@@ -337,3 +337,27 @@ human review.
 The classifier-head approach and a second-pass/auto fallback (beyond queuing for
 human review) are not built yet.
 
+### OpenRouter fallback (opt-in)
+
+When the Gemini call exhausts its retries on a transient error (free-tier daily
+cap, 429, 5xx), the router can call an OpenRouter model as a one-shot fallback.
+This is **opt-in** and **text-only**:
+
+- Wire it by passing `fallback_client=` (a pre-built `OpenAI` client whose
+  `base_url` points at `https://openrouter.ai/api/v1`) when constructing
+  `GeminiVlmRouter`. The key is read from `OPENROUTER_API_KEY` (or
+  `OPENAI_API_KEY`).
+- Default fallback model: `xiaomi/mimo-v2.5`. Override via `fallback_model=`.
+- Triggered only after the primary call raises a retryable error; the same
+  retryability rules as the translator (HTTP 429 / 5xx + overload markers).
+- **Text-only** — the default fallback model is not a VLM, so the router skips
+  the fallback for rows that carry an image. Image rows continue to land in the
+  `unsure` fallback queue as before.
+- No `response_format` constraint is sent on the fallback call; the existing
+  `parse_router_output` handles malformed/chatty responses by routing to
+  `unsure`. A fallback that raises also ends up as `unsure` (with the original
+  Gemini error in `RouterResult.error`).
+
+No automatic runtime switching: a script must construct the router with the
+fallback client explicitly. Selection stays configuration, reproducible.
+

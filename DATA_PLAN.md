@@ -516,11 +516,23 @@ Completion notes:
 - weak-label output:
   `data/safety_v0/weak/vihsd_topic_safety/weak_labeled.jsonl`
 
-### [ ] `ys-zong/VLGuard`
+### [x] `ys-zong/VLGuard`
 
 Decision: accept after sample inspection.
 
-State: metadata converted and weak-labeled; image/OCR stages pending. Access was
+State (2026-06-18 update): bounded image slice done end to end. A diverse
+100-image slice (20 safe + 10 each of 9 harmful subcategories) was extracted via
+ranged reads from the remote zips (`scripts/safety_v0/download/extract_vlguard_images.py`,
+~14 MB on disk, no full zip download) into `data/safety_v0/raw/vlguard/images/`.
+That expands to 111 canonical rows (`converted/vlguard/review_slice.jsonl`). Ran
+English PaddleOCR (111/111 valid, 94 with text), PII redaction (0 PII / 0
+redactions — `personal data` rows are ad-style topic risk, not visible PII
+strings), and prompt-injection rules (0 hits). All three stages validate
+111/111. Found + fixed an OCR adapter bug (`_normalize` raised on empty numpy
+arrays for text-less images; regression test added). Full image set still not
+downloaded — scale up with `--limit`. See `docs/datasets/vlguard.md`.
+
+Earlier state: metadata converted and weak-labeled; image/OCR stages pending. Access was
 granted and metadata files were downloaded on 2026-06-18:
 `README.md`, `train.json`, and `test.json` under
 `data/safety_v0/raw/vlguard/`. Image zips were intentionally not downloaded
@@ -557,9 +569,24 @@ Completion notes:
 - weak-label output: `data/safety_v0/weak/vlguard/weak_labeled.jsonl`
   (done for text instructions; OCR/PII stages pending image extraction)
 
-### [ ] `PKU-Alignment/MM-SafetyBench`
+### [x] `PKU-Alignment/MM-SafetyBench`
 
 Decision: accept after sample inspection.
+
+State (2026-06-18 update): public (not gated), CC BY-NC 4.0 (research-only).
+Metadata downloaded and inspected; mapping decided in
+`docs/datasets/mm_safetybench.md`. Ships per-category Parquet (not zips):
+`Text_only` (harmful question, image null, ~6-10 KB each) + `TYPO` / `SD` /
+`SD_TYPO` image splits (PNG bytes embedded in the parquet). 13 categories,
+1,680 rows per split. The harmful keyword is rendered as typography in the
+`TYPO`/`SD_TYPO` images; PaddleOCR (`--lang en`) recovers it verbatim, so the
+OCR -> PII / prompt-injection pipeline applies directly. Mapping maps only
+obvious axes (`Sex`->sexual, `Physical_Harm`->violence,
+`Political_Lobbying`/`Gov_Decision`->political), sets `action=reject` for the
+clearly-harmful categories, leaves professional-advice categories' action and
+all `prompt_injection` labels `null` (multimodal smuggling is injection-
+ambiguous). Converter + bounded image slice not built yet. The VLGuard
+ranged-zip extractor does NOT apply (parquet, not zip).
 
 Why use it: useful multimodal safety source.
 
@@ -579,11 +606,15 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/mm_safetybench.md`
+- `docs/datasets/mm_safetybench.md` (done)
 - converter output:
-  `data/safety_v0/converted/mm_safetybench/source_canonical.jsonl`
-- weak-label output:
-  `data/safety_v0/weak/mm_safetybench/weak_labeled.jsonl`
+  `data/safety_v0/converted/mm_safetybench/source_canonical.jsonl` (done, 1,680
+  text-only rows)
+- bounded image slice + OCR/PII/PI weak labels:
+  `data/safety_v0/converted/mm_safetybench/review_slice.jsonl` ->
+  `data/safety_v0/weak/mm_safetybench/weak_labeled_image_slice.jsonl` (done,
+  26-image `TYPO` slice). A full `weak/mm_safetybench/weak_labeled.jsonl` over
+  all images is pending a larger extraction.
 
 ### [ ] `yiting/UnsafeBench`
 
@@ -1005,7 +1036,10 @@ Rules:
 
 ## Current Next Step
 
-Decide the VLGuard image extraction path before OCR: either download one large
-upstream zip and extract only the images referenced by a small review/OCR slice,
-or defer VLGuard image OCR and inspect `PKU-Alignment/MM-SafetyBench` metadata
-next. Do not download multi-GB image zips automatically.
+MM-SafetyBench is done: converter (1,680 text-only rows) + a bounded 26-image
+`TYPO` slice through OCR -> PII -> prompt-injection, all validating
+(`docs/datasets/mm_safetybench.md`, `convert_mm_safetybench.py`,
+`extract_mm_safetybench_images.py`, `test_convert_mm_safetybench.py`). Next:
+inspect `yiting/UnsafeBench` metadata (categories, image availability, mapping
+for sexual/violence/blood-gore visual axes), write `docs/datasets/unsafebench.md`,
+decide the mapping. Do not download multi-GB image archives automatically.

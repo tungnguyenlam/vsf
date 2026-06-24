@@ -98,7 +98,13 @@ class Translator(ABC):
 
 
 class GeminiTranslator(Translator):
-    """Gemini Flash translation over an OpenAI-compatible endpoint."""
+    """Gemini Flash translation over an OpenAI-compatible endpoint.
+
+    Optional OpenRouter fallback: pass ``fallback_client=`` (a pre-built OpenAI
+    client whose base URL points at OpenRouter) to enable it. After the primary
+    retry loop exhausts, the same ``messages`` are sent once to the fallback
+    with no internal retries. The fallback is opt-in and disabled by default.
+    """
 
     name = "gemini"
 
@@ -114,6 +120,8 @@ class GeminiTranslator(Translator):
         backoff_cap: float = 60.0,
         sleep_fn: Any = time.sleep,
         client: Any = None,
+        fallback_client: Any = None,
+        fallback_model: Optional[str] = None,
     ):
         self.model = model
         self.base_url = base_url
@@ -125,6 +133,8 @@ class GeminiTranslator(Translator):
         self.backoff_cap = backoff_cap
         self._sleep = sleep_fn
         self._client = client
+        self._fallback_client = fallback_client
+        self._fallback_model = fallback_model
 
     def _resolve_api_key(self) -> Optional[str]:
         if self.api_key:
@@ -160,6 +170,7 @@ class GeminiTranslator(Translator):
             {"role": "user", "content": text},
         ]
         attempt = 0
+        last_exc: Optional[Exception] = None
         while True:
             try:
                 response = client.chat.completions.create(
@@ -171,8 +182,9 @@ class GeminiTranslator(Translator):
                 content = response.choices[0].message.content
                 return (content or "").strip()
             except Exception as exc:  # noqa: BLE001 - retry rate limits, re-raise the rest
+                last_exc = exc
                 if attempt >= self.max_retries or not _is_retryable(exc):
-                    raise
+                    break
                 delay = min(self.backoff_cap, self.backoff_base * (2 ** attempt))
                 logger.warning(
                     "Translator transient error (attempt %d/%d): %s; sleeping %.0fs",
@@ -180,6 +192,39 @@ class GeminiTranslator(Translator):
                 )
                 self._sleep(delay)
                 attempt += 1
+        # Primary retries exhausted on a transient error. Try the OpenRouter
+        # fallback once if wired. Only retryable errors reach this branch; the
+        # fallback is not a general error sink.
+        if self._fallback_client is not None and last_exc is not None and _is_retryable(last_exc):
+            try:
+                return self._call_fallback(messages)
+            except Exception as exc:  # noqa: BLE001 - log and re-raise the original
+                logger.warning(
+                    "OpenRouter fallback failed (%s): %s; re-raising primary error",
+                    exc.__class__.__name__, exc,
+                )
+        assert last_exc is not None  # only reachable via the except branch
+        raise last_exc
+
+    def _call_fallback(self, messages: List[dict]) -> str:
+        from src.pipeline.Fallbacks.openrouter_fallback import (
+            DEFAULT_MODEL as FALLBACK_DEFAULT_MODEL,
+        )
+
+        model = self._fallback_model or FALLBACK_DEFAULT_MODEL
+        logger.warning(
+            "Translator primary exhausted retries; calling OpenRouter fallback model=%s",
+            model,
+        )
+        request: dict = {
+            "model": model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "messages": messages,
+        }
+        response = self._fallback_client.chat.completions.create(**request)
+        content = response.choices[0].message.content
+        return (content or "").strip()
 
 
 # --- Registry (single source of truth for translator selection) --------------

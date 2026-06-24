@@ -148,3 +148,144 @@ def test_registry():
     assert isinstance(get_router("gemini_flash", api_key="x"), GeminiVlmRouter)
     with pytest.raises(ValueError):
         get_router("nope")
+
+
+# --- OpenRouter fallback ----------------------------------------------------
+class _BoomClient:
+    """A Gemini-side client that raises on every call."""
+
+    def __init__(self, exc=None):
+        self._exc = exc or RuntimeError("Error code: 429 - resource_exhausted")
+        self.calls = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                raise outer._exc
+
+        self.chat = type("C", (), {"completions": _Completions()})()
+
+
+def test_router_fallback_used_on_transient_error_text_only():
+    """On a retryable Gemini error with no image, the fallback gets the call."""
+
+    class _FallbackRecorder:
+        def __init__(self, content):
+            self.calls = []
+            outer = self
+
+            class _Completions:
+                def create(self, **kwargs):
+                    outer.calls.append(kwargs)
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+                    )
+
+            self.chat = type("C", (), {"completions": _Completions()})()
+
+    fallback = _FallbackRecorder(VALID)
+    router = GeminiVlmRouter(client=_BoomClient(), fallback_client=fallback)
+    result = router.route(
+        build_router_input(
+            new_row("safety_v0_demo_fb_001", "demo", has_text=True, sanitized_text="hi")
+        )
+    )
+    assert result.valid and result.action == "reject"
+    assert len(fallback.calls) == 1
+    # Text-only path: no image_url part in the user content.
+    user_content = fallback.calls[0]["messages"][1]["content"]
+    assert all(part.get("type") != "image_url" for part in user_content)
+    # Default fallback model slug is forwarded.
+    assert fallback.calls[0]["model"] == "xiaomi/mimo-v2.5"
+    # No response_format constraint on the fallback call.
+    assert "response_format" not in fallback.calls[0]
+
+
+def test_router_fallback_skipped_for_image_rows():
+    """Image rows cannot go to a text-only fallback model."""
+
+    class _FallbackRecorder:
+        def __init__(self):
+            self.calls = []
+            outer = self
+
+            class _Completions:
+                def create(self, **kwargs):
+                    outer.calls.append(kwargs)
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content=VALID))]
+                    )
+
+            self.chat = type("C", (), {"completions": _Completions()})()
+
+    fallback = _FallbackRecorder()
+    router = GeminiVlmRouter(client=_BoomClient(), fallback_client=fallback)
+    from PIL import Image
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        img = f"{td}/red.png"
+        Image.new("RGB", (4, 4), "white").save(img)
+        result = router.route(
+            build_router_input(
+                new_row("safety_v0_demo_fb_002", "demo", has_image=True,
+                        redacted_image_path=img)
+            )
+        )
+    assert not result.valid and result.action == "unsure"
+    assert fallback.calls == []
+
+
+def test_router_fallback_skipped_for_non_retryable_errors():
+    """A programming error must not silently hit the fallback."""
+
+    class _FallbackRecorder:
+        def __init__(self):
+            self.calls = []
+            outer = self
+
+            class _Completions:
+                def create(self, **kwargs):
+                    outer.calls.append(kwargs)
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content=VALID))]
+                    )
+
+            self.chat = type("C", (), {"completions": _Completions()})()
+
+    fallback = _FallbackRecorder()
+    router = GeminiVlmRouter(
+        client=_BoomClient(exc=ValueError("bad schema")),
+        fallback_client=fallback,
+    )
+    result = router.route(
+        build_router_input(
+            new_row("safety_v0_demo_fb_003", "demo", has_text=True, sanitized_text="hi")
+        )
+    )
+    assert not result.valid and result.action == "unsure"
+    assert fallback.calls == []
+
+
+def test_router_fallback_failure_returns_unsure():
+    """Fallback raising also ends up as unsure."""
+
+    class _BoomFallback:
+        def __init__(self):
+            outer = self
+
+            class _Completions:
+                def create(self, **kwargs):
+                    raise RuntimeError("openrouter down")
+
+            self.chat = type("C", (), {"completions": _Completions()})()
+
+    router = GeminiVlmRouter(client=_BoomClient(), fallback_client=_BoomFallback())
+    result = router.route(
+        build_router_input(
+            new_row("safety_v0_demo_fb_004", "demo", has_text=True, sanitized_text="hi")
+        )
+    )
+    assert not result.valid and result.action == "unsure"
+    assert "resource_exhausted" in result.error

@@ -58,6 +58,27 @@ faithfully and **not** to obey instructions inside the text.
 
 The translator retries HTTP 429 / quota errors with exponential backoff.
 
+### OpenRouter fallback (opt-in)
+
+When the Gemini call exhausts its retries on a transient error, the translator
+can call an OpenRouter model as a one-shot fallback. This is **opt-in**:
+
+- Wire it by passing `fallback_client=` (a pre-built `OpenAI` client whose
+  `base_url` points at `https://openrouter.ai/api/v1`) when constructing
+  `GeminiTranslator`. The key is read from `OPENROUTER_API_KEY` (or
+  `OPENAI_API_KEY`).
+- Default fallback model: `xiaomi/mimo-v2.5`. Override via `fallback_model=`.
+- Triggered only after the primary call exhausts retries on a retryable error
+  (HTTP 429 / 5xx + overload markers). Non-retryable errors re-raise as before.
+- The same `messages` payload (system + user) is forwarded verbatim, so the
+  faithful-translation system prompt still instructs the model not to obey
+  instructions in the text.
+- A fallback that raises logs a warning and re-raises the **original** Gemini
+  error, so callers can still treat the row as failed.
+
+No automatic runtime switching: a script must construct the translator with the
+fallback client explicitly. Selection stays configuration, reproducible.
+
 ## Cost and rate limits
 
 Paid Gemini calls, against the `$2-$10` project budget.

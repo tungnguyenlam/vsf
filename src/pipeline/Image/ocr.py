@@ -171,9 +171,17 @@ class PaddleOcrAdapter(OcrAdapter):
             return OcrResult(full_text="", segments=[])
         page = raw[0] if isinstance(raw, list) and raw else raw
         if isinstance(page, dict) or all(hasattr(page, attr) for attr in ("get", "keys")):
-            texts = page.get("rec_texts") or []
-            scores = page.get("rec_scores") or [None] * len(texts)
-            polys = page.get("rec_polys") or page.get("rec_boxes") or []
+            # Values may be numpy arrays, so use explicit length checks instead of
+            # truthiness (`np.ndarray or ...` raises on non-scalar arrays). An
+            # image with no detected text yields empty arrays here.
+            texts = page.get("rec_texts")
+            texts = list(texts) if texts is not None and len(texts) else []
+            scores = page.get("rec_scores")
+            scores = list(scores) if scores is not None and len(scores) else [None] * len(texts)
+            polys = page.get("rec_polys")
+            if polys is None or len(polys) == 0:
+                polys = page.get("rec_boxes")
+            polys = list(polys) if polys is not None and len(polys) else []
             items = []
             for text, poly, conf in zip(texts, polys, scores):
                 if not text:

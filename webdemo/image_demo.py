@@ -21,6 +21,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import fitz
 
 from src.pipeline.Datasets.safety_v0_schema import new_ocr_box, new_pii_span, new_row
 from src.pipeline.Datasets.safety_v0_sources import DEFAULT_DATA_ROOT, REPO_ROOT
@@ -30,7 +31,7 @@ from src.pipeline.Image.redaction import recompute_redactions
 DATA_ROOT = DEFAULT_DATA_ROOT
 UPLOAD_DIR = DATA_ROOT / "review" / "demo" / "uploads"
 REDACTED_DIR = DATA_ROOT / "review" / "demo" / "redacted"
-ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".pdf"}
 
 # Cache the heavy OCR adapter (PaddleOCR warms up slowly) and the built demo
 # rows (so "Run router" reuses the same artifact instead of re-running OCR).
@@ -55,6 +56,7 @@ def _save_upload(file_storage) -> Path:
 
     The suffix is validated against an allowlist; the stored name is a fresh
     UUID so concurrent demo users never collide.
+    If the file is a PDF, its first page is extracted and saved as a PNG.
     """
     suffix = Path(file_storage.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -63,9 +65,24 @@ def _save_upload(file_storage) -> Path:
             f"{', '.join(sorted(ALLOWED_SUFFIXES))}."
         )
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    dst = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
-    file_storage.save(dst)
-    return dst
+    temp_dst = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
+    file_storage.save(temp_dst)
+    
+    if suffix == ".pdf":
+        doc = fitz.open(temp_dst)
+        if len(doc) == 0:
+            doc.close()
+            temp_dst.unlink()
+            raise ValueError("Uploaded PDF is empty.")
+        page = doc[0]
+        pix = page.get_pixmap(dpi=150)
+        png_dst = temp_dst.with_suffix(".png")
+        pix.save(png_dst)
+        doc.close()
+        temp_dst.unlink()
+        return png_dst
+        
+    return temp_dst
 
 
 def _anonymize(text: str, spans: List[Dict[str, Any]]) -> str:

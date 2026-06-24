@@ -10,6 +10,13 @@ The ``openai`` client is imported lazily on first use, so importing this module
 and running the test suite never require the dependency or an API key. Inject a
 pre-built ``client`` (any object with ``.chat.completions.create``) to unit-test
 without network access.
+
+OpenRouter fallback: pass ``fallback_client=`` (a pre-built OpenAI client whose
+base URL points at OpenRouter) to enable a secondary call when the primary
+exhausts retries on a transient error. The fallback is **text-only** — the
+default model ``xiaomi/mimo-v2.5`` is not a VLM, so the fallback is skipped
+for rows that carry an image, and the router falls back to the usual
+``unsure`` path. Opt-in, disabled by default.
 """
 
 from __future__ import annotations
@@ -37,6 +44,35 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 DEFAULT_MODEL = "gemini-flash-latest"
 API_KEY_ENV_VARS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
+
+
+# --- Retryability helper (shared with the translator pattern) ----------------
+# Keeps the router's fallback trigger aligned with the translator: only transient
+# Gemini errors (429 quota, 5xx overload, etc.) attempt the fallback, not
+# programming errors.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_RETRYABLE_MARKERS = (
+    "rate limit",
+    "resource_exhausted",
+    "overloaded",
+    "unavailable",
+    "high demand",
+    "try again",
+    "timeout",
+    "timed out",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if exc.__class__.__name__ in {"RateLimitError", "InternalServerError", "APITimeoutError"}:
+        return True
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status in _RETRYABLE_STATUS:
+        return True
+    text = str(exc).lower()
+    if any(str(code) in text for code in _RETRYABLE_STATUS):
+        return True
+    return any(marker in text for marker in _RETRYABLE_MARKERS)
 
 
 SYSTEM_PROMPT = """You are a safety router for a Vietnamese content pipeline.
@@ -81,7 +117,16 @@ class SafetyRouter(ABC):
 
 
 class GeminiVlmRouter(SafetyRouter):
-    """Gemini Flash (vision) router over an OpenAI-compatible endpoint."""
+    """Gemini Flash (vision) router over an OpenAI-compatible endpoint.
+
+    Optional OpenRouter fallback: pass ``fallback_client=`` (a pre-built OpenAI
+    client whose base URL points at OpenRouter) to enable it. The fallback
+    runs once after the primary call raises a transient error, **and only for
+    text-only rows** — the default fallback model ``xiaomi/mimo-v2.5`` is not a
+    VLM, so image rows cannot be sent down this path. For image rows the
+    fallback is skipped and the router returns ``unsure`` as usual. Opt-in and
+    disabled by default.
+    """
 
     name = "gemini_flash"
 
@@ -94,6 +139,8 @@ class GeminiVlmRouter(SafetyRouter):
         max_tokens: int = 512,
         send_image: bool = True,
         client: Any = None,
+        fallback_client: Any = None,
+        fallback_model: Optional[str] = None,
     ):
         self.model = model
         self.base_url = base_url
@@ -102,6 +149,8 @@ class GeminiVlmRouter(SafetyRouter):
         self.max_tokens = max_tokens
         self.send_image = send_image
         self._client = client
+        self._fallback_client = fallback_client
+        self._fallback_model = fallback_model
 
     def _resolve_api_key(self) -> Optional[str]:
         if self.api_key:
@@ -141,8 +190,8 @@ class GeminiVlmRouter(SafetyRouter):
         ]
 
     def route(self, router_input: Dict[str, Any]) -> RouterResult:
+        client = self._get_client()
         try:
-            client = self._get_client()
             response = client.chat.completions.create(
                 model=self.model,
                 temperature=self.temperature,
@@ -151,9 +200,54 @@ class GeminiVlmRouter(SafetyRouter):
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
-        except Exception as exc:  # network/auth/SDK error -> unsure, audited
+            return parse_router_output(content)
+        except Exception as exc:  # noqa: BLE001 - network/auth/SDK error -> unsure, audited
             logger.warning("Router call failed: %s", exc)
+            # Opt-in OpenRouter fallback: only for transient errors and only
+            # for text-only rows. The default fallback model is not a VLM, so
+            # we do not try to push image content through it.
+            if (
+                self._fallback_client is not None
+                and _is_retryable(exc)
+                and not router_input.get("image_path")
+            ):
+                try:
+                    return self._call_fallback(router_input)
+                except Exception as fb_exc:  # noqa: BLE001
+                    logger.warning(
+                        "OpenRouter fallback failed (%s): %s",
+                        fb_exc.__class__.__name__, fb_exc,
+                    )
             return RouterResult("unsure", {}, valid=False, raw=None, error=str(exc))
+
+    def _call_fallback(self, router_input: Dict[str, Any]) -> RouterResult:
+        from src.pipeline.Fallbacks.openrouter_fallback import (
+            DEFAULT_MODEL as FALLBACK_DEFAULT_MODEL,
+        )
+
+        model = self._fallback_model or FALLBACK_DEFAULT_MODEL
+        # Re-build messages for the text-only path: same system prompt, but
+        # drop the image_url part. build_messages() may still have appended
+        # one if image_path was set; the caller already gated that out, so the
+        # user content here is text-only.
+        messages = self.build_messages(router_input)
+        messages[1]["content"] = [
+            part for part in messages[1]["content"] if part.get("type") != "image_url"
+        ]
+        logger.warning(
+            "Router primary failed; calling OpenRouter fallback model=%s (text-only)",
+            model,
+        )
+        # No response_format constraint: the default fallback model may not
+        # support strict structured output, and parse_router_output() handles
+        # malformed/chatty responses by routing to unsure.
+        response = self._fallback_client.chat.completions.create(
+            model=model,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            messages=messages,
+        )
+        content = response.choices[0].message.content
         return parse_router_output(content)
 
 

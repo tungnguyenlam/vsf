@@ -334,6 +334,19 @@ def api_review_save():
     return jsonify({"saved": True, "record": record})
 
 
+@app.route("/api/review/export-overrides", methods=["GET"])
+def api_review_export_overrides():
+    """Export the human overrides file for a given dataset."""
+    rel_path = request.args.get("file") or ""
+    data_file = review.resolve_data_file(rel_path)
+    if data_file is None:
+        return jsonify({"error": f"Unknown or unsafe file {rel_path!r}."}), 400
+    override_path = review._layer_path_for(data_file.path, "human_overrides")
+    if not os.path.exists(override_path):
+        return jsonify({"error": "No overrides found."}), 404
+    return send_file(override_path, as_attachment=True, download_name=os.path.basename(override_path))
+
+
 @app.route("/api/review/recompute", methods=["POST"])
 def api_review_recompute():
     """Re-derive box mappings + a redacted preview for one row from its current
