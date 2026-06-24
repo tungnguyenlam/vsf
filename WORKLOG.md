@@ -1640,3 +1640,16 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   the unified reproducer as the recommended path.
 - Verified: re-ran run_heldout_evaluation.py; every reported number reproduces.
   Full suite 286 passed, 1 skipped. No LLM spend.
+
+## 2026-06-25 — Makefile for review-time reproducibility
+- Added Makefile with `help`, `reproduce-pi`, `test-pi`, `sweep-pi`, `test`, `all`.
+  Reviewer can now verify every PI number in report.typ / report-vi.typ with:
+      make reproduce-pi     # writes the 4 output JSONs
+      make test-pi          # runs the pinning test
+  No LLM spend; reads the cached translations and the in-domain eval file.
+- AGENTS.md: added a "Makefile" section pointing future agents at the targets
+  instead of hand-rolling commands.
+- Verified: make help / reproduce-pi / test-pi all run cleanly (21 PI tests
+  pass; 4 output JSONs rewritten).
+- Residual risk: none for now. The Makefile only wraps existing Python entry
+  points, so it cannot drift from the actual numbers.

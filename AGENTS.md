@@ -60,6 +60,10 @@ The total paid LLM budget for this project is small ($2-$10 from start to finish
 
 After finishing a task, append a short entry to `WORKLOG.md` at the repo root (date, what changed, what was verified, any residual risk).
 
+## Makefile
+
+`make help` lists the top-level targets. `make reproduce-pi` re-runs every prompt-injection number cited in `writeup/report.typ` and `writeup/report-vi.typ` (no LLM spend; reads on-disk data and the translation cache). `make test-pi` runs the test that pins the writeup tables to the reproducer. Use these instead of hand-rolling commands.
+
 This file grows large and must never be loaded into context:
 - Write to it only with the `bash` tool, by appending (e.g. `printf '...' >> WORKLOG.md` or `cat >> WORKLOG.md <<'EOF' ... EOF`). Never open it with the Read/Edit/Write file tools.
 - To read it, use `bash` with `tail`/`grep`/`head` to pull only the few lines you need. Never `cat` the whole file.
