@@ -1817,3 +1817,19 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Residual risk: P3 (181) is large; reviewer may want --limit to bound a first
   pass. pii_visible is still not auto-flipped (by design -- that is the review
   action the P1 rows exist for).
+
+## 2026-06-25 — Review queues for the remaining finished image/PII sources
+
+- Ran build_review_queue.py over the other finished sources (no code change;
+  outputs are gitignored data/safety_v0/review/queue/<slug>.jsonl, all schema-
+  validated):
+  - vlguard: 4535 -> 883 queued, all P3 (image rejected, all visual axes null;
+    VLGuard does not sub-label sexual/violence/blood_gore).
+  - mm_safetybench: only the 26-row OCR'd image slice has weak labels
+    (weak_labeled_image_slice.jsonl, non-standard name -> passed via --input);
+    22 queued (action null 10, reject+null-visual 12).
+  - webpii: 100 -> 100 queued (every row has action null AND redaction_metadata;
+    a PII source so all rows are review candidates).
+- Queue totals now: webpii 100, mm_safetybench 22, unsafebench 344, vlguard 883.
+- Residual risk: mm_safetybench weak labels cover only 26 rows (the OCR'd image
+  slice), not the full converted set; its queue reflects that slice only.
