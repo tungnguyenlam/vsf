@@ -620,12 +620,24 @@ Completion notes:
 
 Decision: accept after sample inspection.
 
+State (2026-06-25 update): DUA-gated. The HF token in this repo does NOT
+have DUA approval, so the parquet files have not been downloaded. The
+download + inspect scripts are committed and tested with a synthetic
+parquet (`tests/test_download_inspect_unsafebench.py`); they will work
+the moment access is granted. `docs/datasets/unsafebench.md` records
+the 11-category mapping decision (OpenAI DALL-E content policy April
+2022, paper Section 2.1), the per-category -> `action`/boolean axis
+table, the DUA license handling, and the human-review focus. The
+dataset ships one train parquet (755 MB) + one test parquet (184 MB);
+the downloader defaults to the test split and is bounded. No
+converter yet (DUA gate).
+
 Why use it: useful for sexual, violence, and blood/gore visual labels.
 
 First-pass pipeline:
 
-- inspect categories and image availability
-- map obvious categories
+- inspect categories and image availability (done at the script level)
+- map obvious categories (done in `docs/datasets/unsafebench.md`)
 - OCR images
 - run PII and prompt-injection detectors on OCR text
 - leave unclear categories as `null`
@@ -638,9 +650,8 @@ Human review focus:
 
 Completion notes:
 
-- write `docs/datasets/unsafebench.md`
-- converter output:
-  `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
+- write `docs/datasets/unsafebench.md` (done)
+- converter output: `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
 - weak-label output: `data/safety_v0/weak/unsafebench/weak_labeled.jsonl`
 
 ## Unified Dataset Format
@@ -1036,10 +1047,12 @@ Rules:
 
 ## Current Next Step
 
-MM-SafetyBench is done: converter (1,680 text-only rows) + a bounded 26-image
-`TYPO` slice through OCR -> PII -> prompt-injection, all validating
-(`docs/datasets/mm_safetybench.md`, `convert_mm_safetybench.py`,
-`extract_mm_safetybench_images.py`, `test_convert_mm_safetybench.py`). Next:
-inspect `yiting/UnsafeBench` metadata (categories, image availability, mapping
-for sexual/violence/blood-gore visual axes), write `docs/datasets/unsafebench.md`,
-decide the mapping. Do not download multi-GB image archives automatically.
+UnsafeBench inspection step is done at the script level: download + inspect
+scripts committed, synthetic-parquet tests pass, `docs/datasets/unsafebench.md`
+records the 11-category mapping. The dataset itself is DUA-gated and the
+repo's HF token has no DUA approval, so no parquet is on disk yet. Next:
+request DUA access on https://huggingface.co/datasets/yiting/UnsafeBench
+(1-2 day turnaround), then run the downloader + inspector and write the
+converter (`scripts/safety_v0/convert/convert_unsafebench.py`) plus the
+image extractor. Do not download the multi-GB archives automatically
+even once access is granted.

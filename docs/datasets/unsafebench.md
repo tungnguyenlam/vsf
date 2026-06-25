@@ -1,0 +1,176 @@
+# yiting/UnsafeBench (safety_v0 source)
+
+safety_v0 source slug: `unsafebench`. Canonical dataset identity recorded on
+every row: `yiting/UnsafeBench`. Mapped for the visual-safety (sexual / violence
+/ blood-gore) axes per the **OpenAI DALL-E content-policy taxonomy (April
+2022)** that the upstream paper uses.
+
+## What it is
+
+`yiting/UnsafeBench` (paper: [Qu et al., CCS 2025, arXiv:2405.03486](https://arxiv.org/abs/2405.03486))
+is a 10,146-image benchmark of safe/unsafe images for evaluating image-safety
+classifiers. It covers **11 unsafe categories** — Hate, Harassment, Violence,
+Self-Harm, Sexual, Shocking, Illegal Activity, Deception, Political, Public
+and Personal Health, Spam — and two image sources: real-world images from
+LAION-5B and AI-generated images from Lexica. Annotations are three-author
+majority votes (Fleiss' Kappa 0.47, moderate agreement).
+
+The dataset is **GATED** under a Data Use Agreement (DUA) on Hugging Face.
+Access has to be requested manually on
+https://huggingface.co/datasets/yiting/UnsafeBench and approval takes
+1-2 days. The DUA permits research, education, and *responsible* commercial
+use; misuse is prohibited. Rows carry `license_status="dua_research"`.
+
+## Access state (this repo)
+
+The repo's HF token does **not** have DUA approval as of 2026-06-25, so the
+parquet files have not been downloaded. The download + inspect scripts
+themselves are committed and tested with a synthetic parquet (see
+`tests/test_download_inspect_unsafebench.py`); they will work as soon as
+access is granted. **Per DATA_PLAN cost discipline we do not download gated
+multi-GB archives automatically** — even with a working token, the
+downloader defaults to the smaller `test` split (184 MB) and the test
+suite never reaches the network.
+
+## Raw format
+
+The repo ships a single train parquet (755 MB, 8,109 rows) and a single
+test parquet (184 MB, 2,037 rows). Both share the same HF `Image` feature
+schema (`dataset_info.features` in the README):
+
+| Column         | Type   | Meaning |
+|----------------|--------|---------|
+| `image`        | Image  | PIL/JPEG bytes (RGB). Size not fixed. |
+| `safety_label` | string | One of `Safe`, `Unsafe`, `N/A` (human majority vote). |
+| `category`     | string | One of `Safe`, `N/A`, or the 11 unsafe category names below. |
+| `source`       | string | One of `Laion5B` (real-world) or `Lexica` (AI-generated). |
+| `text`         | string | The source caption / prompt that fetched the image. Often literally `"xxx"` for Lexica rows (the prompt is not preserved there). |
+
+The `text` field is **not** a reliable instruction (UnsafeBench is a
+classifier benchmark, not a prompt-injection benchmark), so it goes into
+`source_labels` for audit only and is not used as a `prompt_injection_span`
+or `pii_span` source.
+
+## Label taxonomy vs our canonical axes
+
+The 11 unsafe categories come from the OpenAI DALL-E content policy
+(archived April 2022). The paper's table 3 reduces some categories to
+"Health" for short. The mapping is intentionally conservative
+(`null = unknown, not false`) — we only set a boolean axis `True` when
+the upstream category has a clear, unambiguous meaning, and we leave the
+rest `null` for review.
+
+### Per-category mapping decision
+
+| Upstream category | `action` | `sexual` | `violence` | `blood_gore` | `political` | `religious` | Notes |
+|---|---|---|---|---|---|---|---|
+| `Safe` (label) | `safe` | `false` | `false` | `false` | `false` | `false` | source_gold safe image; all booleans asserted `false` from the source label |
+| `Hate` | `reject` | `null` | `null` | `null` | `null` | `null` | hateful symbols / negative stereotypes; no canonical axis — refuse, do not assert which visual sub-axis fired |
+| `Harassment` | `reject` | `null` | `null` | `null` | `null` | `null` | bullying / targeting; same as Hate — no axis |
+| `Violence` | `reject` | `false` | `true` | `null` | `false` | `false` | clear physical violence; `blood_gore` left null because VLGuard-style violent images do not always contain blood (and UnsafeBench does not sub-label it) |
+| `Self-Harm` | `reject` | `null` | `null` | `null` | `null` | `null` | self-injury imagery; not a canonical axis — refuse only |
+| `Sexual` | `reject` | `true` | `false` | `false` | `false` | `false` | explicit sexual imagery; the cleanest axis in the taxonomy |
+| `Shocking` | `reject` | `null` | `null` | `null` | `null` | `null` | "shocking" / gross / disgusting; not a canonical axis — refuse only |
+| `Illegal Activity` | `reject` | `null` | `null` | `null` | `null` | `null` | depicts illegal acts; not a canonical axis — refuse only |
+| `Deception` | `reject` | `null` | `null` | `null` | `null` | `null` | scam / fraud / phishing imagery; not a canonical axis — refuse only |
+| `Political` | `null` | `false` | `false` | `false` | `true` | `false` | political persuasion; `action` deferred to review (refusal is policy-debatable) |
+| `Public and Personal Health` | `null` | `false` | `false` | `false` | `false` | `false` | medical / health-content imagery; `action` deferred to review (medical info can be educational, not always harmful) |
+| `Spam` | `null` | `false` | `false` | `false` | `false` | `false` | spam / unsolicited content; `action` deferred to review (low-severity, often borderline) |
+| `N/A` (label) | `null` | `null` | `null` | `null` | `null` | `null` | annotators could not decide; leave all axes unknown and send to review |
+
+`prompt_injection` and `pii_visible` are **always `false`** for Safe rows
+(`source_assumption`: these are single-image classifier rows, not
+prompt-injection training data, and there is no OCR text in the source).
+For Unsafe rows we keep them `null` until the OCR/PII detector and the
+prompt-injection rules actually fire; the source category does not tell
+us whether the image text smuggles an instruction or carries literal
+PII strings.
+
+`blood_gore` is set `true` only when the OCR/PII or a downstream
+weak-label pass decides that; it is **not** set by the upstream
+`Violence` category because UnsafeBench does not sub-label it
+(same gap as VLGuard).
+
+### License-status handling
+
+Every UnsafeBench row gets `license_status = "dua_research"`. The
+`source.license_status` field is what the review UI keys off to gate
+non-research use; we never silently set it to `mit_gated` or
+`cc_by_nc_4_0`.
+
+## Inspection without the parquet
+
+`scripts/safety_v0/inspect/inspect_unsafebench.py` reads the parquet
+written by the downloader and emits `data/safety_v0/inspection/unsafebench/`:
+
+- `schema.json` — columns, dtype summaries, the 11-category taxonomy
+  (canonical paper order), license / gating note, split row counts
+- `stats.json` — per-(category, safety_label, source) row counts,
+  text length distribution, image-size distribution, missing-value
+  counts, one joint distribution
+- `sample_rows.jsonl` — a few compact example rows per
+  (category, safety_label) bucket; image bytes are dropped (the
+  document is small on purpose), image dimensions are kept
+
+The inspector is **synthetic-friendly** (the test
+`test_inspect_writes_schema_stats_and_samples` builds a 5-row parquet
+and exercises the CLI end-to-end) so future agents do not need a DUA
+key just to iterate on the script.
+
+## Human review focus
+
+- whether the "refuse without a canonical axis" rows (Hate, Harassment,
+  Self-Harm, Shocking, Illegal Activity, Deception) should be split
+  into specific booleans — currently the visual content is unknown
+  because UnsafeBench does not ship multi-label taxonomy
+- whether `action=reject` should also apply to `Political`,
+  `Public and Personal Health`, `Spam` (paper treats these as
+  "lower priority" categories; we treat them as `action=null` and
+  push the call to review)
+- PII strings in `text` (rare but possible for `Deception` rows that
+  advertise a phone number or address)
+- distinguishing `Violence` from `blood_gore` — the upstream does not
+  sub-label, so any `blood_gore=true` row needs a human check
+
+## Next steps after DUA approval
+
+When the HF token is granted DUA access, the work-queue is:
+
+1. Run `python scripts/safety_v0/download/download_unsafebench.py --split test --limit 500`
+   to pull a bounded 500-row slice from the test parquet.
+2. Run `python scripts/safety_v0/inspect/inspect_unsafebench.py` to write the
+   inspection artifacts (schema, stats, samples) and confirm the per-category
+   distribution matches the paper's table 2.
+3. Write `scripts/safety_v0/convert/convert_unsafebench.py` that mirrors the
+   `category -> labels` mapping above, plus
+   `tests/test_convert_unsafebench.py`. The converter should emit one
+   canonical row per image (no instruction pairing, unlike VLGuard).
+4. Write `scripts/safety_v0/download/extract_unsafebench_images.py` to pull
+   the actual image bytes (PIL-decode from the parquet column) and write
+   them to `data/safety_v0/raw/unsafebench/images/<input_id>.jpg` so
+   `content.original_image_path` lines up.
+5. Run the standard OCR -> PII -> prompt-injection stages. UnsafeBench is
+   English only and most images carry little or no legible text, so
+   PII redactions are expected to be near zero; prompt-injection rules
+   are not Vietnamese-trained but should not over-fire on this image set.
+6. Add a `safety_v0_webdemo` review pass for the rows where the upstream
+   category maps to a `null` axis — these are the highest-value reviews.
+
+## Commands
+
+```bash
+# Download the bounded test-slice (requires DUA-approved HF_TOKEN in .env).
+python scripts/safety_v0/download/download_unsafebench.py --split test --limit 500
+# Inspect (writes schema/stats/sample under data/safety_v0/inspection/unsafebench/).
+python scripts/safety_v0/inspect/inspect_unsafebench.py
+# Test the download/inspect path with a synthetic parquet (no network).
+python -m pytest tests/test_download_inspect_unsafebench.py -v
+```
+
+- converter output (not yet built):
+  `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
+- bounded image slice (not yet built):
+  `data/safety_v0/raw/unsafebench/images/<input_id>.jpg`
+- inspection artifacts (not yet generated, gated on DUA):
+  `data/safety_v0/inspection/unsafebench/{schema,stats}.json`,
+  `sample_rows.jsonl`
