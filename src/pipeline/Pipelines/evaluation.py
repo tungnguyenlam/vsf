@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from src.pipeline.Datasets import get_dataset, list_dataset_names
+from src.pipeline.Datasets import get_dataset, list_dataset_names, resolve_dataset_key
 from src.pipeline.Evaluator import PIIEvaluator
 from src.pipeline.Pipelines.registry import get_pipeline, list_pipeline_names
 from src.pipeline.Utils import DEFAULT_DATASET_NAME, load_evaluation_dataset
@@ -32,6 +32,7 @@ class PipelineEvaluationConfig:
     verify_effort: Optional[str] = None
     verify_provider: str = "require_parameters"
     env_path: Optional[Path] = None
+    input_ids: Optional[tuple[str, ...]] = None
 
     @classmethod
     def from_args(cls, args):
@@ -50,6 +51,7 @@ class PipelineEvaluationConfig:
             verify_effort=args.verify_effort,
             verify_provider=args.verify_provider,
             env_path=Path(args.env_path) if getattr(args, "env_path", None) is not None else None,
+            input_ids=_resolve_input_ids(args),
         )
 
 
@@ -77,6 +79,56 @@ def load_local_env(env_path: Path = None):
             os.environ[key] = value
 
 
+def _read_input_ids_file(path: str) -> list[str]:
+    """Read an input_ids list from a manifest JSON file.
+
+    Accepts either a top-level ``input_ids`` list or a manifest dict with the
+    shape produced by :mod:`src.pipeline.Datasets.sampling`. Empty / missing
+    values fall back to an empty list so callers can treat the result uniformly.
+    """
+    import json
+    from pathlib import Path
+
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        return [str(value) for value in payload]
+    ids = payload.get("input_ids", []) if isinstance(payload, dict) else []
+    return [str(value) for value in ids]
+
+
+def _resolve_input_ids(args) -> Optional[tuple[str, ...]]:
+    """Merge ``--input-ids`` and ``--input-ids-file`` into a deterministic tuple."""
+    raw = list(args.input_ids or [])
+    manifest_path = getattr(args, "input_ids_file", None)
+    if manifest_path:
+        raw.extend(_read_input_ids_file(manifest_path))
+    if not raw:
+        return None
+    seen: dict[str, None] = {}
+    for value in raw:
+        if value not in seen:
+            seen[value] = None
+    return tuple(seen)
+
+
+def _filter_by_input_ids(df, input_ids):
+    """Restrict ``df`` to the requested ``input_ids`` in the manifest order.
+
+    Drops the input_ids not present in the frame with a warning-equivalent
+    comment in the caller's metrics (handled at the runner level by reading
+    the post-filter length). Returns the original frame untouched when
+    ``input_ids`` is None.
+    """
+    if not input_ids:
+        return df
+    allowed = set(input_ids)
+    filtered = df[df["input_id"].astype(str).isin(allowed)].copy()
+    id_to_pos = {value: index for index, value in enumerate(input_ids)}
+    filtered["__input_id_pos"] = filtered["input_id"].astype(str).map(id_to_pos)
+    filtered = filtered.sort_values("__input_id_pos").drop(columns="__input_id_pos")
+    return filtered.reset_index(drop=True)
+
+
 def create_arg_parser():
     parser = argparse.ArgumentParser(description="Evaluate a Vietnamese PII pipeline.")
     parser.add_argument(
@@ -88,6 +140,20 @@ def create_arg_parser():
     parser.add_argument("--dataset", default=DEFAULT_DATASET_NAME)
     parser.add_argument("--split", default="train", help="Dataset split: train, val, test, or all.")
     parser.add_argument("--limit", type=int, default=None, help="Rows to sample per selected split.")
+    parser.add_argument(
+        "--input-ids",
+        action="append",
+        default=None,
+        metavar="ID",
+        help="Restrict evaluation to a specific input_id. Repeatable.",
+    )
+    parser.add_argument(
+        "--input-ids-file",
+        default=None,
+        metavar="PATH",
+        help="Path to a JSON manifest with an 'input_ids' list (e.g. data/sample_ids/*.json). "
+             "When set, only those rows are evaluated, independent of --limit or HF row order.",
+    )
     parser.add_argument("--score-threshold", type=float, default=0.0)
     parser.add_argument(
         "--log-path",
@@ -161,18 +227,21 @@ class PipelineEvaluationRunner:
         return output
 
     def _load_dataset(self):
-        if self.config.dataset in list_dataset_names():
-            self.dataset = get_dataset(self.config.dataset)
-            return self.dataset.load(
+        registry_key = resolve_dataset_key(self.config.dataset)
+        if registry_key in list_dataset_names():
+            self.dataset = get_dataset(registry_key)
+            df = self.dataset.load(
                 split=self.config.split,
                 limit=self.config.limit,
             )
+            return _filter_by_input_ids(df, self.config.input_ids)
         self.dataset = None
-        return load_evaluation_dataset(
+        df = load_evaluation_dataset(
             dataset_name=self.config.dataset,
             split=self.config.split,
             limit=self.config.limit,
         )
+        return _filter_by_input_ids(df, self.config.input_ids)
 
     def _build_pipeline(self):
         return get_pipeline(
@@ -233,6 +302,9 @@ class PipelineEvaluationRunner:
             "metrics_path": str(self._metrics_path()),
             "log_path": str(resolved_log_path) if resolved_log_path else None,
         }
+        if self.config.input_ids:
+            output["input_ids_requested"] = len(self.config.input_ids)
+            output["input_ids_matched"] = rows
         if self.config.per_label:
             overall, per_entity, per_label = evaluation
             output.update(

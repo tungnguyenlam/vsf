@@ -4,6 +4,7 @@ from src.pipeline.Datasets.registry import (
     get_dataset,
     get_dataset_class,
     list_dataset_names,
+    resolve_dataset_key,
 )
 from src.pipeline.Datasets.variants import (
     HoangHaViePiiDataset,
@@ -25,4 +26,5 @@ __all__ = [
     "get_dataset",
     "get_dataset_class",
     "list_dataset_names",
+    "resolve_dataset_key",
 ]

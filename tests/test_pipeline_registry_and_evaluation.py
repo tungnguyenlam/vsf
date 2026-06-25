@@ -334,3 +334,114 @@ def test_makefile_smoke_pii_target_runs_end_to_end(tmp_path):
     assert payload["rows"] == 5
     assert "overall" in payload
     assert {"precision", "recall", "f1"} <= set(payload["overall"])
+
+
+def test_pinned_pii_reproducer_is_deterministic(tmp_path):
+    # The 500-row val manifest is the cheapest deterministic sample we can pin
+    # for the PII report's regex_recall row. Two back-to-back runs must agree
+    # byte-for-byte on the metrics the report cites; otherwise the report
+    # numbers are no longer reproducible from the committed manifest.
+    import subprocess
+    from src.pipeline.Datasets import resolve_dataset_key
+
+    manifest = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "data"
+        / "sample_ids"
+        / "pii_masking_95k__validation__writeup_pin_500.json"
+    )
+    assert manifest.exists(), f"pinned manifest missing: {manifest}"
+    assert resolve_dataset_key("nguyenlamtung/pii-masking-95k-preencoded") == "pii_masking_95k"
+
+    env = {"PYTHONPATH": ".", "PATH": __import__("os").environ["PATH"]}
+    cmd = [
+        "python",
+        "scripts/evaluate_pipeline.py",
+        "--pipeline",
+        "regex_recall",
+        "--split",
+        "val",
+        "--input-ids-file",
+        str(manifest),
+        "--no-log",
+        "--log-path",
+        str(tmp_path / "pinned.jsonl"),
+    ]
+
+    payloads = []
+    for _ in range(2):
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+        payloads.append(json.loads(result.stdout))
+
+    first, second = payloads
+    assert first["rows"] == 500
+    assert first.get("input_ids_matched") == 500
+    assert first.get("input_ids_requested") == 500
+    assert first["split"] == "val"
+    assert first["pipeline"] == "regex_recall"
+    # Only stable metric fields must be byte-identical between runs.
+    assert first["overall"] == second["overall"]
+    assert first["per_entity"] == second["per_entity"]
+
+
+def test_pinned_pii_reproducer_pins_reported_metrics(tmp_path):
+    # Pin a small set of regex_recall per-entity numbers on the 500-row val
+    # sample. These are NOT the report's headline numbers (those come from the
+    # full ~9500-row val set with NER), but they are the deterministic slice
+    # `make reproduce-pii` recomputes. If the HF dataset is re-uploaded and the
+    # slice moves, this test fails loudly so the report is updated deliberately
+    # rather than silently.
+    import subprocess
+
+    manifest = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "data"
+        / "sample_ids"
+        / "pii_masking_95k__validation__writeup_pin_500.json"
+    )
+    env = {"PYTHONPATH": ".", "PATH": __import__("os").environ["PATH"]}
+    result = subprocess.run(
+        [
+            "python",
+            "scripts/evaluate_pipeline.py",
+            "--pipeline",
+            "regex_recall",
+            "--split",
+            "val",
+            "--input-ids-file",
+            str(manifest),
+            "--no-log",
+            "--log-path",
+            str(tmp_path / "pinned.jsonl"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["rows"] == 500
+
+    # Per-entity F1s to 4 decimal places. Update this block deliberately whenever
+    # the HF dataset is re-uploaded or the pinned manifest is regenerated.
+    expected_f1 = {
+        "PHONE_NUMBER": 1.0,
+        "IP_ADDRESS": 1.0,
+        "EMAIL_ADDRESS": 1.0,
+        "URL": 1.0,
+        "CRYPTO": 0.9677,
+        "LOCATION": 0.9361,
+        "CREDIT_CARD": 0.9032,
+        "DATE_TIME": 0.8225,
+        "ID": 0.6686,
+        "PERSON": 0.6626,
+        "BANK_ACCOUNT": 0.6222,
+        "ORGANIZATION": 0.6362,
+    }
+    for entity, expected in expected_f1.items():
+        actual = round(payload["per_entity"][entity]["f1"], 4)
+        assert actual == expected, (
+            f"{entity} F1 drift: expected {expected}, got {actual}. "
+            "If the HF dataset was re-uploaded or the manifest regenerated, "
+            "update the pin deliberately and refresh the report table."
+        )

@@ -1667,3 +1667,11 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   completes in ~1s on real HF data. Full suite 287 passed, 1 skipped.
 - Residual risk: smoke-pii exercises regex_only only (not underthesea / hybrid)
   to avoid the NER model download — keep it as a wiring check, not a perf check.
+
+## 2026-06-25 — pin the PII writeup sample
+
+- Added `--input-ids` / `--input-ids-file` to `src/pipeline/Pipelines/evaluation.py` plus a `resolve_dataset_key` helper in `src/pipeline/Datasets/registry.py` so the CLI accepts both the registry key and the legacy HF repo id. The PII report numbers come from a 500-row deterministic subsample of `pii_masking_95k` validation; before this change the val sample moved when HF re-encoded the dataset, so the numbers could not be re-derived from a clean clone.
+- Persisted the 500-row val `input_id`s as `data/sample_ids/pii_masking_95k__validation__writeup_pin_500.json` (deterministic, `random_state=42`).
+- New `make reproduce-pii` target runs `regex_recall` on that manifest and writes `output/evaluations/pinned_pii/regex_recall.json`. Two new tests: `test_pinned_pii_reproducer_is_deterministic` (two back-to-back runs agree byte-for-byte) and `test_pinned_pii_reproducer_pins_reported_metrics` (12 per-entity F1s pinned to 4 decimals). `make all` now chains `reproduce-pii` between `test-pi` and `test-pii`.
+- Verified: full test suite 289 passed / 1 skipped (2 new tests, no regressions). `make reproduce-pii` runs in ~1s and is reproducible. Per-entity F1s differ from the 2026-06-16 500-row run because the HF dataset was re-uploaded between then and now; pinned numbers reflect the current state of the dataset, not the legacy run.
+- Residual risk: the pinned numbers are for the cheapest deterministic slice we can afford, not the report's headline 0.9658 / 0.8420 / 0.8996 (those came from the full ~9500-row val set with NER). A future task could add a full NER-based run behind an opt-in target, but per AGENTS.md cost discipline that is reserved for the test split / final reporting only.
