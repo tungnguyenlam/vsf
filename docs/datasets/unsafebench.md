@@ -26,8 +26,9 @@ use; misuse is prohibited. Rows carry `license_status="dua_research"`.
 DUA access was **granted** on 2026-06-25. The bounded `test` split (175 MB,
 2,037 rows) has been downloaded to
 `data/safety_v0/raw/unsafebench/data/test-00000-of-00001.parquet`, inspected,
-and converted (`data/safety_v0/converted/unsafebench/source_canonical.jsonl`,
-2,037/2,037 valid). The larger `train` parquet (755 MB) is intentionally not
+and converted. The converted file initially held 2,037/2,037 valid rows but was
+**finalized at the 1,357-row OCRed slice** (see Next steps item 5) — every
+downstream stage now covers the same 1,357 ids. The larger `train` parquet (755 MB) is intentionally not
 downloaded. **Per DATA_PLAN cost discipline we do not download gated multi-GB
 archives automatically** — the downloader defaults to the smaller `test` split
 and the test suite never reaches the network (it uses a synthetic parquet, see
@@ -154,17 +155,27 @@ images -> OCR -> PII redaction -> prompt-injection rules. Remaining work-queue:
    them to `data/safety_v0/raw/unsafebench/images/<input_id>.jpg` so
    `content.original_image_path` lines up.~~ Done — 2,037/2,037 extracted,
    0 failed (`tests/test_extract_unsafebench_images.py`, 5 tests).
-5. ~~Run the standard OCR -> PII -> prompt-injection stages.~~ Done on a
-   **1,368-row slice** (OCR was cut early by decision; the full 2,037 can be
-   finished any time with `run_ocr.py --slug unsafebench --lang en --resume`,
-   which skips the rows already in `ocr.jsonl`). Results matched expectations:
-   796/1,368 rows had legible OCR text; **31 rows got PII redactions** (~2%,
-   near-zero as predicted for English image text); **0 prompt-injection
-   flags** (the Vietnamese-trained rules did not over-fire). The
-   prompt-injection stage must be pointed at the redacted JSONL
+5. ~~Run the standard OCR -> PII -> prompt-injection stages.~~ Done, then the
+   source was **finalized at the 1,357-row OCRed slice** (OCR was cut early by
+   decision; the remaining ~680 non-OCRed rows were **discarded** along with
+   their extracted images so every stage covers the same id set — we do not
+   carry rows with no OCR text). The slice is internally consistent at 1,357
+   unique rows: `converted` == `ocr` == `redacted` == `weak` == the 1,357
+   extracted JPEGs (verified: identical id sets, 0 dangling
+   `original_image_path`). Results matched expectations: 790/1,357 rows had
+   legible OCR text; **31 rows got PII redactions** (~2%, near-zero as
+   predicted for English image text); **0 prompt-injection flags** (the
+   Vietnamese-trained rules did not over-fire). Weak-label distribution:
+   `action` {safe 911, reject 311, null 135}; `prompt_injection` all False;
+   `pii_visible` {False 911, null 446}. The prompt-injection stage must be
+   pointed at the redacted JSONL
    (`--input data/safety_v0/redacted/unsafebench/redacted.jsonl`) because the
    detector reads `content.ocr_text`, which only the OCR/redact stages fill —
    the converted rows have empty `input_text` (text is audit metadata).
+
+   Note: the converter is deterministic over the parquet row order, so the
+   discarded rows are fully regenerable — re-run the extractor + `run_ocr.py
+   --resume` to grow the slice back toward 2,037 if ever needed.
 6. Add a `safety_v0_webdemo` review pass for the rows where the upstream
    category maps to a `null` axis — these are the highest-value reviews.
 
@@ -188,11 +199,11 @@ python scripts/safety_v0/inspect/inspect_unsafebench.py
 python -m pytest tests/test_download_inspect_unsafebench.py -v
 ```
 
-- converter output (built, 2,037 rows):
+- converter output (finalized, 1,357 rows; trimmed from 2,037 to the OCRed slice):
   `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
-- extracted images (built, 2,037 JPEGs):
+- extracted images (1,357 JPEGs; orphans for non-OCRed rows deleted):
   `data/safety_v0/raw/unsafebench/images/<input_id>.jpg`
-- weak-label chain (built on a 1,368-row slice):
+- weak-label chain (built on the 1,357-row slice):
   `data/safety_v0/ocr/unsafebench/ocr.jsonl` ->
   `data/safety_v0/redacted/unsafebench/redacted.jsonl` ->
   `data/safety_v0/weak/unsafebench/weak_labeled.jsonl`

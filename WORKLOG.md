@@ -1770,3 +1770,24 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Residual risk: PII redaction records `redaction_metadata` but does not flip
   `labels.pii_visible=true`; the 31 redacted rows are pii_visible candidates for
   the review pass, not authoritative weak labels. Verify-by docs/datasets/unsafebench.md.
+
+## 2026-06-25 — UnsafeBench finalized at the 1,357-row OCRed slice
+
+- Decision (user): stop OCR, do not finish the remaining rows; discard the
+  non-OCRed rows and their image info, keep only what has OCR + downstream data.
+- Discovered the OCR/redact/weak files held 1,368 *lines* but only 1,357
+  *unique* input_ids — 11 duplicate rows in the 1345-1355 range from the
+  kill/resume concurrency overlap. Deduped all three (keep last occurrence,
+  sorted by input_id).
+- Trimmed converted/source_canonical.jsonl from 2,037 -> 1,357 (dropped 680
+  non-OCRed rows) and deleted the 680 orphan JPEGs under raw/.../images/.
+- Result: converted == ocr == redacted == weak == extracted images, all 1,357
+  unique ids (verified identical id sets, 0 dangling original_image_path).
+- Verified: schema validation 1357/1357 valid on converted + weak; 790/1357
+  legible OCR rows; 31 PII redactions (~2%); 0 prompt-injection flags.
+  Weak labels: action {safe 911, reject 311, null 135}; prompt_injection all
+  False; pii_visible {False 911, null 446}.
+- Tests: 33 passed (extract/convert/run_ocr/download-inspect; all synthetic).
+- Residual risk: pii_visible still not flipped for the 31 redacted rows (known
+  gap, documented). Slice is regenerable from the parquet via extractor +
+  run_ocr --resume if we ever want the full 2,037.
