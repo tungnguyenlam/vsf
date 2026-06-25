@@ -23,14 +23,22 @@ use; misuse is prohibited. Rows carry `license_status="dua_research"`.
 
 ## Access state (this repo)
 
-The repo's HF token does **not** have DUA approval as of 2026-06-25, so the
-parquet files have not been downloaded. The download + inspect scripts
-themselves are committed and tested with a synthetic parquet (see
-`tests/test_download_inspect_unsafebench.py`); they will work as soon as
-access is granted. **Per DATA_PLAN cost discipline we do not download gated
-multi-GB archives automatically** — even with a working token, the
-downloader defaults to the smaller `test` split (184 MB) and the test
-suite never reaches the network.
+DUA access was **granted** on 2026-06-25. The bounded `test` split (175 MB,
+2,037 rows) has been downloaded to
+`data/safety_v0/raw/unsafebench/data/test-00000-of-00001.parquet`, inspected,
+and converted (`data/safety_v0/converted/unsafebench/source_canonical.jsonl`,
+2,037/2,037 valid). The larger `train` parquet (755 MB) is intentionally not
+downloaded. **Per DATA_PLAN cost discipline we do not download gated multi-GB
+archives automatically** — the downloader defaults to the smaller `test` split
+and the test suite never reaches the network (it uses a synthetic parquet, see
+`tests/test_download_inspect_unsafebench.py` and `tests/test_convert_unsafebench.py`).
+
+Observed test-split distribution (matches the paper's category buckets):
+1,260 Safe / 777 Unsafe (no N/A in the released split); sources balanced
+(Lexica 1,022 / Laion5B 1,015); `text` empty on 609 rows. The converter emits
+1,260 `action=safe`, 579 `action=reject`, and 198 `action=null` rows (the
+Political 91 + Public-and-Personal-Health 55 + Spam 52 Unsafe rows whose action
+is deferred to review).
 
 ## Raw format
 
@@ -132,23 +140,19 @@ key just to iterate on the script.
 - distinguishing `Violence` from `blood_gore` — the upstream does not
   sub-label, so any `blood_gore=true` row needs a human check
 
-## Next steps after DUA approval
+## Next steps
 
-When the HF token is granted DUA access, the work-queue is:
+Done (2026-06-25): download (test split) -> inspect -> convert. Remaining
+work-queue:
 
-1. Run `python scripts/safety_v0/download/download_unsafebench.py --split test --limit 500`
-   to pull a bounded 500-row slice from the test parquet.
-2. Run `python scripts/safety_v0/inspect/inspect_unsafebench.py` to write the
-   inspection artifacts (schema, stats, samples) and confirm the per-category
-   distribution matches the paper's table 2.
-3. Write `scripts/safety_v0/convert/convert_unsafebench.py` that mirrors the
-   `category -> labels` mapping above, plus
-   `tests/test_convert_unsafebench.py`. The converter should emit one
-   canonical row per image (no instruction pairing, unlike VLGuard).
+1. ~~Download the test parquet.~~ Done.
+2. ~~Inspect.~~ Done — distribution above.
+3. ~~Write `convert_unsafebench.py` + `tests/test_convert_unsafebench.py`,
+   one canonical row per image (no instruction pairing, unlike VLGuard).~~ Done.
 4. Write `scripts/safety_v0/download/extract_unsafebench_images.py` to pull
    the actual image bytes (PIL-decode from the parquet column) and write
    them to `data/safety_v0/raw/unsafebench/images/<input_id>.jpg` so
-   `content.original_image_path` lines up.
+   `content.original_image_path` lines up. **This is the immediate next step.**
 5. Run the standard OCR -> PII -> prompt-injection stages. UnsafeBench is
    English only and most images carry little or no legible text, so
    PII redactions are expected to be near zero; prompt-injection rules
@@ -167,10 +171,10 @@ python scripts/safety_v0/inspect/inspect_unsafebench.py
 python -m pytest tests/test_download_inspect_unsafebench.py -v
 ```
 
-- converter output (not yet built):
+- converter output (built, 2,037 rows):
   `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
 - bounded image slice (not yet built):
   `data/safety_v0/raw/unsafebench/images/<input_id>.jpg`
-- inspection artifacts (not yet generated, gated on DUA):
+- inspection artifacts (generated):
   `data/safety_v0/inspection/unsafebench/{schema,stats}.json`,
   `sample_rows.jsonl`

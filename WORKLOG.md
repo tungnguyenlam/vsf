@@ -1717,3 +1717,33 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Both reports recompile cleanly with `typst compile`; rebuilt `writeup/report.pdf` and `writeup/report-vi.pdf`.
 - Verified: figures reproduce the exact numbers already cited in the writeup tables (rule-based F1 1.000, NB LOO F1 0.875, in-domain NB LOO F1 0.791, combined-pool recall 0.386, best-F1 threshold 0.909, recall gaps 0.000 / 0.000 / 0.441 for PHONE_NUMBER/EMAIL_ADDRESS/PERSON).
 - Residual risk: figures are generated against the same on-disk snapshots the writeup cites, so any future change to the underlying numbers requires rerunning this script (no separate CI gate yet).
+
+## 2026-06-25 — UnsafeBench: DUA granted, download + convert
+
+- DUA access granted on yiting/UnsafeBench. Downloaded the bounded test split
+  (175 MB, 2,037 rows) to data/safety_v0/raw/unsafebench/ (train 755 MB left
+  alone per cost discipline). Ran the inspector over all 2,037 rows:
+  1,260 Safe / 777 Unsafe (no N/A in the released split), sources balanced
+  (Lexica 1,022 / Laion5B 1,015), `text` empty on 609 rows. Confirmed the
+  `category` column is the *tested* bucket (present on both Safe and Unsafe
+  rows), so safety_label drives the row and category only refines axes for
+  Unsafe rows.
+- Wrote scripts/safety_v0/convert/convert_unsafebench.py: one canonical row
+  per image, mirroring docs/datasets/unsafebench.md. Output 2,037/2,037 valid
+  -> 1,260 action=safe, 579 action=reject, 198 action=null (the Political 91 +
+  Public-and-Personal-Health 55 + Spam 52 Unsafe rows whose action is deferred
+  to review). pii_visible/prompt_injection are False(source_assumption) for Safe
+  rows and null for Unsafe rows; blood_gore stays null even for Violence (no
+  sub-label). `text` is kept in source_labels for audit only (has_text=False).
+- tests/test_convert_unsafebench.py (11 tests, synthetic parquet, no network):
+  pins the per-category mapping, case-insensitive category match, one-row-per-
+  image, --limit, and full schema validation. All pass.
+- Updated docs/datasets/unsafebench.md (access state, observed distribution,
+  next-steps) and DATA_PLAN.md Current Next Step.
+- Verified: convert tests 11 passed; full suite 305 passed / 1 skipped (was
+  294, +11 new), no regressions.
+- Residual risk: image pixels are still inside the parquet — the converter
+  references data/safety_v0/raw/unsafebench/images/<input_id>.jpg but those
+  files do not exist yet. Immediate next step is
+  scripts/safety_v0/download/extract_unsafebench_images.py (PIL-decode the
+  image column) before any OCR/PII/prompt-injection weak-label pass.

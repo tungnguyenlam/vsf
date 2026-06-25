@@ -1047,12 +1047,14 @@ Rules:
 
 ## Current Next Step
 
-UnsafeBench inspection step is done at the script level: download + inspect
-scripts committed, synthetic-parquet tests pass, `docs/datasets/unsafebench.md`
-records the 11-category mapping. The dataset itself is DUA-gated and the
-repo's HF token has no DUA approval, so no parquet is on disk yet. Next:
-request DUA access on https://huggingface.co/datasets/yiting/UnsafeBench
-(1-2 day turnaround), then run the downloader + inspector and write the
-converter (`scripts/safety_v0/convert/convert_unsafebench.py`) plus the
-image extractor. Do not download the multi-GB archives automatically
-even once access is granted.
+UnsafeBench is downloaded (test split, 175 MB / 2,037 rows), inspected, and
+converted: `scripts/safety_v0/convert/convert_unsafebench.py` emits 2,037/2,037
+valid canonical rows (one per image; 1,260 safe / 579 reject / 198 null action)
+following the 11-category mapping in `docs/datasets/unsafebench.md`.
+`tests/test_convert_unsafebench.py` (11 tests) pins the mapping on a synthetic
+parquet. Next: write `scripts/safety_v0/download/extract_unsafebench_images.py`
+to PIL-decode the parquet `image` column into
+`data/safety_v0/raw/unsafebench/images/<input_id>.jpg` so
+`content.original_image_path` resolves, then run the standard OCR -> PII ->
+prompt-injection weak-label stages over the extracted images. Do not download
+the 755 MB train parquet automatically.
