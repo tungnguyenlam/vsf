@@ -62,7 +62,7 @@ After finishing a task, append a short entry to `WORKLOG.md` at the repo root (d
 
 ## Makefile
 
-`make help` lists the top-level targets. `make reproduce-pi` re-runs every prompt-injection number cited in `writeup/report.typ` and `writeup/report-vi.typ` (no LLM spend; reads on-disk data and the translation cache). `make test-pi` runs the test that pins the writeup tables to the reproducer. Use these instead of hand-rolling commands.
+`make help` lists the top-level targets. `make reproduce-pi` re-runs every prompt-injection number cited in `writeup/report.typ` and `writeup/report-vi.typ` (no LLM spend; reads on-disk data and the translation cache). `make test-pi` runs the test that pins the writeup tables to the reproducer. `make test-pii` runs the PII pipeline tests (no model download); `make smoke-pii` runs `regex_only` on a 5-row HF sample to smoke-test the pipeline end-to-end. `make all` chains `reproduce-pi` + `test-pi` + `test-pii` + `smoke-pii`. Use these instead of hand-rolling commands.
 
 This file grows large and must never be loaded into context:
 - Write to it only with the `bash` tool, by appending (e.g. `printf '...' >> WORKLOG.md` or `cat >> WORKLOG.md <<'EOF' ... EOF`). Never open it with the Read/Edit/Write file tools.

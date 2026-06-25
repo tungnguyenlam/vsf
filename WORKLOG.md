@@ -1653,3 +1653,17 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   pass; 4 output JSONs rewritten).
 - Residual risk: none for now. The Makefile only wraps existing Python entry
   points, so it cannot drift from the actual numbers.
+
+## 2026-06-25 — Makefile PII targets + smoke test
+- Added Makefile targets: `test-pii` (runs the PII pipeline + registry + evaluation
+  tests, no HF download) and `smoke-pii` (runs `regex_only` on a 5-row HF sample
+  to smoke-test the pipeline end-to-end, writes output/evaluations/smoke_pii/).
+  `make all` now chains reproduce-pi + test-pi + test-pii + smoke-pii.
+- Added test_makefile_smoke_pii_target_runs_end_to_end: invokes
+  scripts/evaluate_pipeline.py as a subprocess (5 rows, regex_only, --no-log)
+  and asserts the JSON shape so `make smoke-pii` is exercised from CI.
+- AGENTS.md: Makefile section updated to mention the PII targets.
+- Verified: make help / test-pii / smoke-pii all run cleanly; 5-row smoke run
+  completes in ~1s on real HF data. Full suite 287 passed, 1 skipped.
+- Residual risk: smoke-pii exercises regex_only only (not underthesea / hybrid)
+  to avoid the NER model download — keep it as a wiring check, not a perf check.

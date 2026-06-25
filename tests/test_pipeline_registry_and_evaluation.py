@@ -298,3 +298,39 @@ def test_pipeline_evaluation_writes_metrics_when_prediction_logging_is_disabled(
     assert output["log_path"] is None
     assert output["metrics_path"] == str(metrics_path)
     assert metrics_path.exists()
+
+
+def test_makefile_smoke_pii_target_runs_end_to_end(tmp_path):
+    # Run the actual CLI as a subprocess so `make smoke-pii` is exercised from
+    # CI: a 5-row run on pii_masking_95k proves the real HF data path + the
+    # regex_only pipeline agree on the script wrapper. Cheap, deterministic, no
+    # NER model download.
+    import subprocess
+
+    metrics_path = tmp_path / "smoke_pii_metrics.json"
+    result = subprocess.run(
+        [
+            "python",
+            "scripts/evaluate_pipeline.py",
+            "--pipeline",
+            "regex_only",
+            "--split",
+            "train",
+            "--limit",
+            "5",
+            "--no-log",
+            "--log-path",
+            "/tmp/smoke_pii_predictions.jsonl",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={"PYTHONPATH": ".", "PATH": __import__("os").environ["PATH"]},
+    )
+
+    metrics_path.write_text(result.stdout, encoding="utf-8")
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert payload["pipeline"] == "regex_only"
+    assert payload["rows"] == 5
+    assert "overall" in payload
+    assert {"precision", "recall", "f1"} <= set(payload["overall"])
