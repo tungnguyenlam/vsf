@@ -1,6 +1,8 @@
 """Tests for WebPII source-box alignment during the OCR stage."""
 
 import importlib.util
+import json
+import sys
 from pathlib import Path
 
 from src.pipeline.Datasets.safety_v0_schema import new_row, validate_row
@@ -276,3 +278,57 @@ def test_ocr_row_runs_adapter_and_aligns_source_boxes(tmp_path):
     ]
     assert out["detections"]["pii_spans"][0]["box_ids"] == ["box_0001", "box_0002", "box_0003"]
     assert validate_row(out) == []
+
+
+def test_resume_skips_done_ids_and_appends(tmp_path, monkeypatch, capsys):
+    """--resume must skip input_ids already in the output and append the rest,
+    so an interrupted long run converges on a plain re-run."""
+    mod = _load_run_ocr()
+    image = tmp_path / "doc.png"
+    image.write_bytes(b"fake image; FakeAdapter only checks existence")
+
+    # Three converted image rows.
+    in_path = tmp_path / "converted.jsonl"
+    rows = []
+    for i in range(1, 4):
+        rows.append(
+            new_row(
+                f"safety_v0_webpii_{i:06d}",
+                "WebPII/webpii",
+                has_image=True,
+                has_ocr=False,
+                original_image_path=str(image),
+            )
+        )
+    in_path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    # Pre-seed the output with the first row already OCR'd (simulating a crash
+    # that stopped after one row).
+    out_path = tmp_path / "ocr.jsonl"
+    out_path.write_text(
+        json.dumps(mod.ocr_row(rows[0], FakeAdapter()), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(mod, "get_ocr_adapter", lambda *a, **k: FakeAdapter())
+    monkeypatch.setattr(
+        sys, "argv",
+        ["run_ocr.py", "--input", str(in_path), "--output", str(out_path), "--resume"],
+    )
+
+    assert mod.main() == 0
+
+    out_rows = [json.loads(l) for l in out_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    # First row not re-processed; the two remaining appended. No duplicates.
+    ids = [r["input_id"] for r in out_rows]
+    assert ids == [
+        "safety_v0_webpii_000001",
+        "safety_v0_webpii_000002",
+        "safety_v0_webpii_000003",
+    ]
+    captured = capsys.readouterr().out
+    assert "Resume: 1 rows already" in captured
+    assert "1 already done" in captured

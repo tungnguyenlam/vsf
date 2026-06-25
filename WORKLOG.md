@@ -1747,3 +1747,26 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   files do not exist yet. Immediate next step is
   scripts/safety_v0/download/extract_unsafebench_images.py (PIL-decode the
   image column) before any OCR/PII/prompt-injection weak-label pass.
+
+## 2026-06-25 — UnsafeBench image extraction + weak-label chain
+
+- Added `scripts/safety_v0/download/extract_unsafebench_images.py`: PIL-decodes
+  the parquet `image` column (handles HF `{"bytes",path}` struct, raw bytes,
+  path-only cells) to `data/safety_v0/raw/unsafebench/images/<input_id>.jpg`
+  using the same 1-based row order as the converter so
+  `content.original_image_path` resolves exactly. Extracted 2,037/2,037, 0 failed.
+- Added `--resume` to `scripts/safety_v0/run_ocr.py`: skips input_ids already in
+  the output, appends, and flushes per row so an interrupted long image run
+  converges on a plain re-run. (The first full OCR run was killed ~row 1268; a
+  concurrent kill left one interleaved partial line, repaired by dropping it.)
+- Ran OCR (`--lang en`) -> PII redaction -> prompt-injection rules over a
+  1,368-row slice (OCR cut early by decision; the rest can be finished with
+  `--resume`). Results: 796/1,368 had legible OCR text; 31 rows got PII
+  redactions (~2%, near-zero as predicted for English image text); 0
+  prompt-injection flags (VI-trained rules did not over-fire). PI stage was
+  pointed at redacted.jsonl because the detector reads `content.ocr_text`.
+- Tests: `tests/test_extract_unsafebench_images.py` (5) + a `--resume` test in
+  `tests/test_run_ocr_webpii_alignment.py`. Full suite 311 passed / 1 skipped.
+- Residual risk: PII redaction records `redaction_metadata` but does not flip
+  `labels.pii_visible=true`; the 31 redacted rows are pii_visible candidates for
+  the review pass, not authoritative weak labels. Verify-by docs/datasets/unsafebench.md.

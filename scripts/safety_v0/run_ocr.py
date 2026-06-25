@@ -316,6 +316,13 @@ def main() -> int:
              "input that already has ocr_boxes (defaults to the slug's ocr.jsonl, "
              "rewritten in place). Cheap way to re-align after a coverage change.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Append to an existing output, skipping input_ids already present. "
+             "Each row is flushed as it is written so an interrupted run "
+             "(OOM/crash over a long image set) converges on a plain re-run.",
+    )
     args = parser.parse_args()
 
     # --realign reads an already-OCR'd file (default: the slug's ocr.jsonl) and
@@ -373,19 +380,34 @@ def main() -> int:
         print(f"Input not found: {in_path}", file=sys.stderr)
         return 1
 
+    # --resume: skip input_ids already in the output and append to it. Otherwise
+    # truncate and start fresh.
+    done_ids: set = set()
+    if args.resume and out_path.exists():
+        with open(out_path, encoding="utf-8") as existing:
+            for line in existing:
+                line = line.strip()
+                if line:
+                    done_ids.add(json.loads(line).get("input_id"))
+        print(f"Resume: {len(done_ids)} rows already in {out_path}; skipping those.")
+
     adapter = get_ocr_adapter(args.adapter, lang=args.lang)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total = ocred = invalid = 0
-    with open(in_path, encoding="utf-8") as src, open(out_path, "w", encoding="utf-8") as dst:
+    total = ocred = invalid = skipped = 0
+    open_mode = "a" if (args.resume and out_path.exists()) else "w"
+    with open(in_path, encoding="utf-8") as src, open(out_path, open_mode, encoding="utf-8") as dst:
         for line in src:
             line = line.strip()
             if not line:
                 continue
             if args.limit is not None and total >= args.limit:
                 break
-            total += 1
             row = json.loads(line)
+            if done_ids and row.get("input_id") in done_ids:
+                skipped += 1
+                continue
+            total += 1
             had_image = row.get("modality", {}).get("has_image")
             row = ocr_row(
                 row,
@@ -402,8 +424,11 @@ def main() -> int:
                 print(f"  invalid {row.get('input_id')}: {errors[0]}", file=sys.stderr)
                 continue
             dst.write(json.dumps(row, ensure_ascii=False) + "\n")
+            if args.resume:
+                dst.flush()  # converge on crash: each row durable as written
 
-    print(f"OCR: {total} rows, {ocred} with text, {invalid} invalid -> {out_path}")
+    suffix = f", {skipped} already done" if skipped else ""
+    print(f"OCR: {total} rows, {ocred} with text, {invalid} invalid{suffix} -> {out_path}")
     return 1 if invalid else 0
 
 

@@ -142,23 +142,40 @@ key just to iterate on the script.
 
 ## Next steps
 
-Done (2026-06-25): download (test split) -> inspect -> convert. Remaining
-work-queue:
+Done (2026-06-25): download (test split) -> inspect -> convert -> extract
+images -> OCR -> PII redaction -> prompt-injection rules. Remaining work-queue:
 
 1. ~~Download the test parquet.~~ Done.
 2. ~~Inspect.~~ Done — distribution above.
 3. ~~Write `convert_unsafebench.py` + `tests/test_convert_unsafebench.py`,
    one canonical row per image (no instruction pairing, unlike VLGuard).~~ Done.
-4. Write `scripts/safety_v0/download/extract_unsafebench_images.py` to pull
+4. ~~Write `scripts/safety_v0/download/extract_unsafebench_images.py` to pull
    the actual image bytes (PIL-decode from the parquet column) and write
    them to `data/safety_v0/raw/unsafebench/images/<input_id>.jpg` so
-   `content.original_image_path` lines up. **This is the immediate next step.**
-5. Run the standard OCR -> PII -> prompt-injection stages. UnsafeBench is
-   English only and most images carry little or no legible text, so
-   PII redactions are expected to be near zero; prompt-injection rules
-   are not Vietnamese-trained but should not over-fire on this image set.
+   `content.original_image_path` lines up.~~ Done — 2,037/2,037 extracted,
+   0 failed (`tests/test_extract_unsafebench_images.py`, 5 tests).
+5. ~~Run the standard OCR -> PII -> prompt-injection stages.~~ Done on a
+   **1,368-row slice** (OCR was cut early by decision; the full 2,037 can be
+   finished any time with `run_ocr.py --slug unsafebench --lang en --resume`,
+   which skips the rows already in `ocr.jsonl`). Results matched expectations:
+   796/1,368 rows had legible OCR text; **31 rows got PII redactions** (~2%,
+   near-zero as predicted for English image text); **0 prompt-injection
+   flags** (the Vietnamese-trained rules did not over-fire). The
+   prompt-injection stage must be pointed at the redacted JSONL
+   (`--input data/safety_v0/redacted/unsafebench/redacted.jsonl`) because the
+   detector reads `content.ocr_text`, which only the OCR/redact stages fill —
+   the converted rows have empty `input_text` (text is audit metadata).
 6. Add a `safety_v0_webdemo` review pass for the rows where the upstream
    category maps to a `null` axis — these are the highest-value reviews.
+
+### Known gap (for the review pass)
+
+The PII redaction stage records `detections.redaction_metadata` for the 31
+rows where regex matched PII in the OCR text, but it does **not** flip
+`labels.pii_visible` to `true` — `pii_visible` stays `false` (safe rows,
+source_assumption) or `null` (unsafe rows). Treat the 31 redacted rows as
+`pii_visible` candidates during review; do not read the weak-label column as
+authoritative for PII on this source.
 
 ## Commands
 
@@ -173,8 +190,23 @@ python -m pytest tests/test_download_inspect_unsafebench.py -v
 
 - converter output (built, 2,037 rows):
   `data/safety_v0/converted/unsafebench/source_canonical.jsonl`
-- bounded image slice (not yet built):
+- extracted images (built, 2,037 JPEGs):
   `data/safety_v0/raw/unsafebench/images/<input_id>.jpg`
+- weak-label chain (built on a 1,368-row slice):
+  `data/safety_v0/ocr/unsafebench/ocr.jsonl` ->
+  `data/safety_v0/redacted/unsafebench/redacted.jsonl` ->
+  `data/safety_v0/weak/unsafebench/weak_labeled.jsonl`
 - inspection artifacts (generated):
   `data/safety_v0/inspection/unsafebench/{schema,stats}.json`,
   `sample_rows.jsonl`
+
+```bash
+# Extract the parquet image column to JPEGs (no HF token needed).
+python scripts/safety_v0/download/extract_unsafebench_images.py
+# OCR (English) -> PII redaction -> prompt-injection rules. --resume on OCR
+# lets an interrupted long run converge on a plain re-run.
+python scripts/safety_v0/run_ocr.py --slug unsafebench --lang en --resume
+python scripts/safety_v0/run_pii_redaction.py --slug unsafebench
+python scripts/safety_v0/run_prompt_injection_rules.py --slug unsafebench \
+    --input data/safety_v0/redacted/unsafebench/redacted.jsonl
+```
