@@ -176,8 +176,23 @@ images -> OCR -> PII redaction -> prompt-injection rules. Remaining work-queue:
    Note: the converter is deterministic over the parquet row order, so the
    discarded rows are fully regenerable — re-run the extractor + `run_ocr.py
    --resume` to grow the slice back toward 2,037 if ever needed.
-6. Add a `safety_v0_webdemo` review pass for the rows where the upstream
-   category maps to a `null` axis — these are the highest-value reviews.
+6. ~~Add a review pass for the rows where the upstream category maps to a
+   `null` axis.~~ Done — `scripts/safety_v0/build_review_queue.py` selects the
+   uncertain/conflicting/incomplete rows and wrote **344 rows** to
+   `data/safety_v0/review/queue/unsafebench.jsonl` (schema-valid). Breakdown by
+   queue priority (DATA_PLAN "Priority for review" order):
+   - **P1 (31)** — `pii_spans` detected but `pii_visible` is not `true`. This is
+     exactly the known gap below: the 31 redacted rows surface at the top of the
+     queue so a reviewer flips `pii_visible`.
+   - **P2 (132)** — `action` is null (the Political/Health/Spam deferrals).
+   - **P3 (181)** — image rejected but all visual axes (`sexual`/`violence`/
+     `blood_gore`) are null (Hate/Harassment/Self-Harm/Shocking/Illegal/
+     Deception — UnsafeBench does not sub-label these).
+
+   Rebuild any time with `python scripts/safety_v0/build_review_queue.py
+   --slug unsafebench` (add `--limit N` to cap). Queued rows keep
+   `review.status="needs_review"` and a `review.notes` reason string; nothing
+   else is mutated, so the webdemo and final build read them unchanged.
 
 ### Known gap (for the review pass)
 

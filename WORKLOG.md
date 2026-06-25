@@ -1791,3 +1791,29 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
 - Residual risk: pii_visible still not flipped for the 31 redacted rows (known
   gap, documented). Slice is regenerable from the parquet via extractor +
   run_ocr --resume if we ever want the full 2,037.
+
+## 2026-06-25 — Review-queue builder + UnsafeBench review pass
+
+- Added scripts/safety_v0/build_review_queue.py: source-agnostic selector that
+  reads weak_labeled.jsonl and writes review/queue/<slug>.jsonl. Implements the
+  DATA_PLAN "Priority for review" order as ranked selectors (P1 conflicting
+  source/pipeline labels, P2 action=null, P3 image rejected with null visual
+  axes, P4 PII after redaction, P5 PI hard negatives). A row is queued if any
+  selector fires; priority = highest-ranked match; all matched reasons recorded
+  in review.notes. Queued rows stay schema-valid (only review.status ->
+  needs_review and review.notes change). --slug resolves standard paths;
+  --input/--output/--limit/--has-images for overrides + tests.
+- Added review_queue_path(slug) helper to safety_v0_sources.py (single source of
+  truth for the per-source queue path).
+- Ran on unsafebench: 1357 rows -> 344 queued, all schema-valid. Priority dist:
+  P1=31 (pii_spans found but pii_visible not true -- the known gap, now top of
+  queue), P2=132 (action null), P3=181 (reject with null visual axes). Reason
+  counts: action null 135, reject+null-visual 185, pii_spans-vs-pii_visible 31,
+  redaction_metadata 31.
+- Tests: tests/test_build_review_queue.py (7 tests: each selector, priority
+  order, limit cap, schema-validity, CLI). Full suite 318 passed.
+- Docs: docs/datasets/unsafebench.md next-steps item 6 marked done with the
+  breakdown.
+- Residual risk: P3 (181) is large; reviewer may want --limit to bound a first
+  pass. pii_visible is still not auto-flipped (by design -- that is the review
+  action the P1 rows exist for).

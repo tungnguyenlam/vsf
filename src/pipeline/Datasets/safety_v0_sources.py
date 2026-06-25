@@ -177,6 +177,12 @@ def review_queue_dir(*, root: Optional[Path] = None, create: bool = False) -> Pa
     return shared_dir("review/queue", root=root, create=create)
 
 
+def review_queue_path(slug: str, *, root: Optional[Path] = None, create: bool = False) -> Path:
+    """Rows selected for human review for one source, one file per source."""
+    get_source(slug)
+    return review_queue_dir(root=root, create=create) / f"{slug}.jsonl"
+
+
 def api_labels_dir(*, root: Optional[Path] = None, create: bool = False) -> Path:
     return shared_dir("review/api_labels", root=root, create=create)
 
