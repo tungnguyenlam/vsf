@@ -47,7 +47,11 @@ def list_canonical_files(root: Path = DATA_ROOT) -> List[Dict[str, str]]:
     """
     root = Path(root)
     found: List[Dict[str, str]] = []
+    # Review queues come first: they are the curated subset a human should clear
+    # (built by scripts/safety_v0/build_review_queue.py, pre-sorted by priority),
+    # so the tab defaults to a queue rather than a full-source dump.
     patterns = [
+        ("review-queue", "review/queue/*.jsonl"),
         ("weak", "weak/*/weak_labeled.jsonl"),
         ("redacted", "redacted/*/redacted.jsonl"),
         ("ocr", "ocr/*/ocr.jsonl"),
@@ -61,8 +65,40 @@ def list_canonical_files(root: Path = DATA_ROOT) -> List[Dict[str, str]]:
                 continue
             seen.add(path)
             rel = path.relative_to(REPO_ROOT).as_posix()
-            found.append({"path": rel, "label": f"[{stage}] {rel}"})
+            label = f"[{stage}] {rel}"
+            if stage == "review-queue":
+                # Surface the queue size so the reviewer sees the workload up front.
+                label += f" ({_count_needs_review(path)} to review)"
+            found.append({"path": rel, "label": label})
     return found
+
+
+def _count_needs_review(path: Path) -> int:
+    """Count queue rows still awaiting review (``needs_review`` minus any row a
+    human override has since marked ``human_reviewed``), for the dropdown label."""
+    reviewed = {
+        iid
+        for iid, rec in load_overrides(override_path_for(path)).items()
+        if (rec.get("review") or {}).get("status") == "human_reviewed"
+    }
+    n = 0
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (rec.get("review") or {}).get("status") == "needs_review" and rec.get(
+                    "input_id"
+                ) not in reviewed:
+                    n += 1
+    except OSError:
+        return 0
+    return n
 
 
 def _resolve_under_root(rel_or_abs: str, base: Path) -> Optional[Path]:

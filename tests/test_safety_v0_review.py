@@ -47,6 +47,40 @@ def test_list_and_resolve(sandbox):
     assert review.resolve_data_file(rel) == data_file.resolve()
 
 
+def test_review_queue_listed_first_with_count(sandbox):
+    repo_root, root, data_file = sandbox
+    (root / "weak" / "webpii").mkdir(parents=True)
+    (root / "weak" / "webpii" / "weak_labeled.jsonl").write_text("{}\n", encoding="utf-8")
+    qdir = root / "review" / "queue"
+    qdir.mkdir(parents=True)
+    queue_rows = [
+        new_row("safety_v0_webpii_000001", "webpii", has_text=True, input_text="a"),
+        new_row("safety_v0_webpii_000002", "webpii", has_text=True, input_text="b"),
+    ]
+    for r in queue_rows:
+        r["review"]["status"] = "needs_review"
+    (qdir / "webpii.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in queue_rows) + "\n", encoding="utf-8"
+    )
+
+    files = review.list_canonical_files(root)
+    # The queue is surfaced and sorts ahead of the full-source weak file.
+    assert files[0]["label"].startswith("[review-queue]")
+    assert files[0]["path"].endswith("review/queue/webpii.jsonl")
+    assert "(2 to review)" in files[0]["label"]
+
+    # Once a row is human-reviewed via an override, the count drops to 1.
+    review.save_override(
+        data_file=qdir / "webpii.jsonl",
+        input_id="safety_v0_webpii_000001",
+        labels={f: None for f in review.LABEL_FIELDS},
+        review={"status": "human_reviewed", "notes": ""},
+        reviewer="tester",
+    )
+    files = review.list_canonical_files(root)
+    assert "(1 to review)" in files[0]["label"]
+
+
 def test_resolve_blocks_traversal(sandbox):
     assert review.resolve_data_file("../../etc/passwd") is None
     assert review.resolve_image("../../etc/passwd") is None

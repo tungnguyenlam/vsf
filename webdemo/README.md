@@ -111,8 +111,20 @@ Edits are pre-filled from the row's existing labels and appended as overrides to
 `input_id` wins). Paths are constrained to `data/safety_v0/` to prevent
 traversal.
 
-The file picker includes converter, OCR, redacted, weak, and demo sample JSONL
-outputs. For image PII rows such as WebPII, the **Image** step overlays the
+The file picker lists the **review queues** first — `review/queue/<source>.jsonl`,
+the curated subset built by `scripts/safety_v0/build_review_queue.py` and
+pre-sorted so the highest-priority rows (conflicting labels, then `action=null`)
+come first. Each queue entry shows how many rows still need review (e.g.
+`[review-queue] …/unsafebench.jsonl (344 to review)`), and the count drops as you
+save overrides. The tab defaults to a queue, so a reviewer can start clearing the
+cheapest, highest-value rows immediately; the auto-queued reason for each row is
+shown in the Notes box. Below the queues the picker still includes the full
+converter, OCR, redacted, weak, and demo sample JSONL outputs. Overrides saved
+from a queue land in the same `human_overrides/<source>.jsonl` file the full
+source uses, so `scripts/safety_v0/apply_review_overrides.py` merges them
+regardless of which view you reviewed from.
+
+For image PII rows such as WebPII, the **Image** step overlays the
 existing `source_pii_boxes` on the original image (and shows the redacted image
 when present), so you can see what was boxed and add any that were missed.
 
