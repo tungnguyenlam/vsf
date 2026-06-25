@@ -1708,3 +1708,12 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   with a synthetic 5-row parquet only. Once access arrives, the
   immediate next step is `download_unsafebench.py --limit 500` and
   then writing `convert_unsafebench.py`.
+
+## 2026-06-25 — add 8 figures to the PII + PI writeup
+
+- New script `scripts/plot_report_extras.py` produces 8 PNGs into `writeup/images/` (3 PII + 5 PI). Reads only on-disk metrics already cited in the writeup tables (`results/metrics.json`, `output/safety_v0/pi_vi_eval/*.json`, `output/safety_v0/deepset_vi/heldout_results.json`, `output/safety_v0/llmail_vi/transfer_results.json`, `output/dataset_profiles/pii_masking_95k/all/stats.json`).
+- New figures: `pii_entity_distribution.png`, `pii_recall_gap.png`, `pii_overall_compare.png`, `pi_confusion_in_domain.png`, `pi_heldout_f1.png`, `pi_recall_growth.png`, `pi_threshold_sweep.png`, `pi_fpr_summary.png`.
+- Inserted 8 `#figure(image(...))` blocks into both `writeup/report.typ` and `writeup/report-vi.typ` next to the tables they visualise (no table was removed, only enriched with the corresponding figure and a caption that names the data source).
+- Both reports recompile cleanly with `typst compile`; rebuilt `writeup/report.pdf` and `writeup/report-vi.pdf`.
+- Verified: figures reproduce the exact numbers already cited in the writeup tables (rule-based F1 1.000, NB LOO F1 0.875, in-domain NB LOO F1 0.791, combined-pool recall 0.386, best-F1 threshold 0.909, recall gaps 0.000 / 0.000 / 0.441 for PHONE_NUMBER/EMAIL_ADDRESS/PERSON).
+- Residual risk: figures are generated against the same on-disk snapshots the writeup cites, so any future change to the underlying numbers requires rerunning this script (no separate CI gate yet).

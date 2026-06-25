@@ -230,6 +230,11 @@ The system is evaluated by default on the `pii_masking_95k` dataset (loaded from
   ),
 )
 
+#figure(
+  image("images/pii_entity_distribution.png", width: 95%),
+  caption: [Span counts per target Presidio entity across the full 95,122-document corpus. LOCATION and PERSON dominate, which is consistent with administrative-style records; EMAIL_ADDRESS, BANK_ACCOUNT, and PHONE_NUMBER are sparser but still well represented. The log scale lets small-count entities (e.g. EMAIL_ADDRESS, BANK_ACCOUNT) stay visible next to LOCATION.],
+)
+
 *Dataset Sample PII (pii_masking_95k):*
 - *Input Text:* `"49. Tổ chức sự kiện nội bộ Người phụ trách: Quách Thảo Mạnh Mã nhân viên: VNG-EMP-88463 Lĩnh vực công việc: Marketing - Truyền thông Tên tổ chức tổ chức sự kiện: VNDirect Ngày tổ chức: 31/01/1998"`
 - *Corresponding PII Labels (Ground Truth Spans):*
@@ -286,6 +291,11 @@ Performance comparison across different pipeline configurations on the validatio
   ),
 )
 
+#figure(
+  image("images/pii_overall_compare.png", width: 95%),
+  caption: [Overall P/R/F1 across all five pipelines on the same 500-row validation slice. The five configurations decompose the hybrid into its components, making the trade-off explicit: `underthesea_ner` alone has poor precision and recall because it only sees PERSON/ORGANIZATION; `regex_recall` already has high precision (0.987) at recall 0.851; combining it with NER via the optimized `underthesea_regex_recall` lifts recall to 0.884 at the cost of seven extra false positives.],
+)
+
 The `regex_recall` configuration yields high precision and minimal latency, making it the preferred default for real-time applications. Integrating NER models from the Underthesea library increases recall (particularly for unstructured person and organization names) but introduces additional computational overhead and slightly higher false-positive rates.
 
 #figure(
@@ -314,6 +324,11 @@ The `regex_recall` configuration yields high precision and minimal latency, maki
 #figure(
   image("images/per_entity_f1.png", width: 100%),
   caption: [Detailed F1-score comparison by entity type. Structured entities (emails, phone numbers, URLs, and IDs) achieve high performance (F1 ≈ 0.96–1.00), whereas names of persons and organizations remain the primary challenges.],
+)
+
+#figure(
+  image("images/pii_recall_gap.png", width: 95%),
+  caption: [Recall gap by entity for the `regex_recall` pipeline: share of ground-truth spans the recognizer misses (1 - recall), with raw FN/TP counts. PHONE_NUMBER and EMAIL_ADDRESS are at zero gap (49/49 and 34/34 recovered); PERSON is the dominant residual error (44.1%, 187 of 424 spans missed) followed by ORGANIZATION (25.1%). This view makes the open gap concrete and identifies where NER adds value.],
 )
 
 #figure(
@@ -402,7 +417,17 @@ A crucial caveat applies to the perfect score on `local_vi_prompt_injection`: th
   ),
 )
 
+#figure(
+  image("images/pi_confusion_in_domain.png", width: 95%),
+  caption: [Confusion matrices on the in-domain `pi_vi_eval` set (148 rows). The rule-based detector's perfect diagonal is coverage by construction: the rules were authored against the same gold attacks. The Naive Bayes leave-one-out run reveals its actual weakness: 16 false positives on benign Vietnamese text (e.g. common character sequences such as "của"), which is the gap a larger, more diverse Vietnamese corpus is expected to close.],
+)
+
 Read carefully, the leave-one-out Naive Bayes score of 0.875 is the more honest indicator of generalization, since the rule-based 1.00 is coverage by construction on the same gold attacks. The learned model recovers most attacks (recall 0.946) without ever having seen any keyword rule, but it over-fires on benign Vietnamese text (16 false positives, e.g. triggering on common character sequences such as "của"), which is precisely the weakness a larger and more diverse Vietnamese training corpus is expected to close.
+
+#figure(
+  image("images/pi_threshold_sweep.png", width: 80%),
+  caption: [Naive Bayes threshold sweep on `pi_vi_eval` (148 rows, LOO). Raising the cut-off from the default 0.5 to 0.999 removes only 6 false positives (16 down to 10) and lifts F1 from 0.875 to 0.909; recall stays hard-capped at 0.946 because four attacks score near zero and are missed at any usable threshold. The best-F1 threshold is fit on the evaluation set itself, so 0.909 is an optimistic ceiling, not a deployable gain.],
+)
 
 A decision-threshold sweep over the same leave-one-out scores confirms that this over-firing is not a mis-set cut-off. The Naive Bayes posteriors are saturated near 0 or 1, so the default 0.5 threshold sits in a flat region; pushing the cut-off up to 0.999 removes only six false positives (16 down to 10) and lifts F1 from 0.875 to at most 0.909, while recall stays hard-capped at 0.946 because four attacks score near zero and are missed at any usable threshold. That best-F1 threshold is moreover selected on the evaluation set itself, so 0.909 is an optimistic ceiling rather than a deployable gain. The conclusion is that threshold tuning only shaves a handful of false positives and cannot close the gap to the rule-based detector on this corpus; doing so requires more and more diverse Vietnamese attack data, not a different operating point.
 
@@ -421,6 +446,11 @@ A decision-threshold sweep over the same leave-one-out scores confirms that this
     [Char n-gram NB], [local-seed -> deepset-vi], [0.646], [0.201], [0.307],
     [Char n-gram NB], [deepset-vi leave-one-out], [0.783], [0.799], [0.791],
   ),
+)
+
+#figure(
+  image("images/pi_heldout_f1.png", width: 95%),
+  caption: [F1 of the rule-based detector and the three Naive Bayes variants on the held-out `deepset_vi` set. The contrast between the first bar (rule-based F1 = 0.122) and the last bar (in-domain NB leave-one-out F1 = 0.791) is the headline result: the data is learnable, so the production gap is a data problem, not a model ceiling.],
 )
 
 This is the result that matters. On unseen attacks the rule-based detector recovers only 10 of 154 (recall 0.065) while keeping perfect precision (zero false positives on 197 real Vietnamese benigns): it is a high-precision matcher locked to the exact wordings it was written for, and its earlier 1.00 was coverage by construction. The learned model transfers somewhat better across sources (recall 0.20–0.29) but still poorly. The decisive contrast is the last row: trained in-domain on `deepset-vi` itself (leave-one-out), the same Naive Bayes reaches F1 0.791 — so the data is learnable and the production gap is a *data* problem, namely the absence of a large, diverse, in-domain Vietnamese attack corpus, not a ceiling of the model. This is also why translation augmentation (one labelled English sample becomes a Vietnamese twin) is the central lever for the next phase.
@@ -442,7 +472,17 @@ This is the result that matters. On unseen attacks the rule-based detector recov
   ),
 )
 
+#figure(
+  image("images/pi_recall_growth.png", width: 95%),
+  caption: [Recall on the held-out `llmail-vi` source (500 attacks) as the Naive Bayes training pool grows. The dashed line marks the rule-based detector's flat 0.026 recall on the same source. Each additional Vietnamese source translated into the training pool measurably improves coverage, which is the empirical backing for the data-centric strategy.],
+)
+
 The rules recover just 13 of 500 attacks (recall 0.026) on this never-before-seen distribution, confirming that their precision comes at the cost of essentially no generalization. The learned model beats them ten- to fifteen-fold, and — the key point — its recall climbs monotonically as more diverse in-domain Vietnamese data is pooled into training: 0.262 from `pi-vi-eval` alone, 0.364 from `deepset-vi`, and 0.386 from the combined pool. This is the positive evidence for the data-centric strategy: each additional translated Vietnamese source measurably improves coverage of unseen attacks, so the path to a deployable learned detector is to keep enlarging and diversifying the Vietnamese attack corpus through translation augmentation.
+
+#figure(
+  image("images/pi_fpr_summary.png", width: 90%),
+  caption: [False-positive count of the two detectors on real Vietnamese benign inputs (74 inside `pi_vi_eval` and 197 inside `deepset-vi`). The rule-based detector stays at zero false positives on both, which is why it remains the right choice for a first-line filter; the Naive Bayes detector over-fires on both, with 16 FPs in-domain and 38 on the held-out set, which is the cost we pay for the recall it gives us in return.],
+)
 
 === Limitations and Future Work
 

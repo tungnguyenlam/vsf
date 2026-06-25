@@ -216,18 +216,23 @@ Quá trình điều phối nhận dạng diễn ra tuần tự qua các bước:
 Hệ thống được đánh giá thực nghiệm mặc định trên bộ dữ liệu `pii_masking_95k` (tải từ Hugging Face repository `nguyenlamtung/pii-masking-95k-preencoded`). Đây là bộ dữ liệu tiếng Việt tổng hợp quy mô lớn chứa khoảng 95.000 mẫu văn bản, mô phỏng các định dạng tài liệu hành chính, y tế, tài chính và quản lý nhân sự tại Việt Nam.
 
 #figure(
-  caption: [Phân bổ số lượng mẫu trong bộ dữ liệu pii_masking_95k.],
+  caption: [Phân bố các tập dữ liệu của pii_masking_95k.],
   table(
     columns: (auto, auto),
     align: (left, right),
     inset: 7pt,
     stroke: 0.5pt + luma(180),
-    table.header([*Tập dữ liệu con (Split)*], [*Số lượng mẫu (Dòng)*]),
-    [Huấn luyện (Train)], [76.097],
-    [Kiểm định (Validation)], [9.512],
-    [Kiểm thử (Test)], [9.513],
-    [*Tổng cộng*], [*95.122*],
+    table.header([*Tập dữ liệu*], [*Số lượng văn bản (dòng)*]),
+    [Train], [76.097],
+    [Validation], [9.512],
+    [Test], [9.513],
+    [*Tổng*], [*95.122*],
   ),
+)
+
+#figure(
+  image("images/pii_entity_distribution.png", width: 95%),
+  caption: [Số lượng span theo từng thực thể Presidio mục tiêu trên toàn bộ tập 95.122 văn bản. LOCATION và PERSON chiếm ưu thế, phù hợp với đặc thù văn bản hành chính; EMAIL_ADDRESS, BANK_ACCOUNT và PHONE_NUMBER thưa hơn nhưng vẫn đủ đại diện. Trục log giúp các thực thể có số lượng nhỏ (ví dụ EMAIL_ADDRESS, BANK_ACCOUNT) vẫn hiển thị rõ cạnh LOCATION.],
 )
 
 *Ví dụ mẫu dữ liệu PII (pii_masking_95k):*
@@ -273,17 +278,22 @@ Hiệu năng của hệ thống được đo lường dựa trên ba chỉ số 
 Kết quả so sánh hiệu năng giữa các cấu hình hệ thống trên toàn bộ tập dữ liệu kiểm định:
 
 #figure(
-  caption: [Kết quả thực nghiệm trên tập dữ liệu kiểm định (Validation Set).],
+  caption: [Kết quả thực nghiệm trên tập validation.],
   table(
     columns: (1.8fr, auto, auto, auto),
     align: (left, right, right, right),
     inset: 7pt,
     stroke: 0.5pt + luma(180),
-    table.header([*Cấu hình hệ thống (Pipeline)*], [*Precision*], [*Recall*], [*F1-score*]),
+    table.header([*Cấu hình pipeline*], [*Precision*], [*Recall*], [*F1-score*]),
     [`regex_recall` (Dựa trên mẫu)], [0.9658], [0.8420], [0.8996],
-    [`underthesea_regex_recall` (Trước dọn dẹp)], [0.9481], [0.8817], [0.9137],
-    [`underthesea_regex_recall` (Đã tối ưu)], [0.9659], [0.8714], [0.9162],
+    [`underthesea_regex_recall` (Baseline)], [0.9481], [0.8817], [0.9137],
+    [`underthesea_regex_recall` (Tối ưu)], [0.9659], [0.8714], [0.9162],
   ),
+)
+
+#figure(
+  image("images/pii_overall_compare.png", width: 95%),
+  caption: [Tổng hợp P/R/F1 của cả năm pipeline trên cùng 500 dòng validation. Năm cấu hình phân tách hệ lai thành các thành phần, giúp đánh đổi trở nên rõ ràng: `underthesea_ner` đứng một mình có precision và recall thấp vì chỉ nhìn thấy PERSON/ORGANIZATION; `regex_recall` đã đạt precision cao (0.987) với recall 0.851; kết hợp NER thông qua `underthesea_regex_recall` tối ưu nâng recall lên 0.884 đổi lại thêm bảy dương tính giả.],
 )
 
 Phân tích kết quả cho thấy cấu hình `regex_recall` chỉ sử dụng Regex mang lại độ chính xác rất cao và tốc độ xử lý tối ưu, phù hợp làm cấu hình mặc định cho các ứng dụng yêu cầu tính thời gian thực. Việc tích hợp thêm mô hình NER từ thư viện Underthesea giúp cải thiện đáng kể độ bao phủ (đặc biệt đối với các thực thể có cấu trúc phức tạp như tên người và tổ chức) nhưng làm tăng chi phí tính toán và tỷ lệ báo động giả.
@@ -313,7 +323,12 @@ Phân tích kết quả cho thấy cấu hình `regex_recall` chỉ sử dụng 
 
 #figure(
   image("images/per_entity_f1.png", width: 100%),
-  caption: [So sánh F1-score chi tiết theo từng loại thực thể giữa các cấu hình. Các thực thể như email, số điện thoại, địa chỉ và mã định danh đạt hiệu năng rất cao (≈ 0.96–1.00), trong khi họ tên và tổ chức vẫn là các thách thức lớn nhất.],
+  caption: [So sánh chi tiết F1-score theo từng loại thực thể. Các thực thể có cấu trúc rõ ràng (email, số điện thoại, URL, ID) đạt hiệu năng cao (F1 ≈ 0,96–1,00), trong khi tên người và tên tổ chức vẫn là thách thức chính.],
+)
+
+#figure(
+  image("images/pii_recall_gap.png", width: 95%),
+  caption: [Khoảng cách recall theo thực thể cho pipeline `regex_recall`: tỷ lệ span ground-truth bị bỏ sót (1 - recall), kèm số FN/TP thô. PHONE_NUMBER và EMAIL_ADDRESS có khoảng cách bằng không (49/49 và 34/34 được khôi phục); PERSON là lỗi sót chiếm ưu thế (44,1%, bỏ sót 187 trên 424 span) tiếp theo là ORGANIZATION (25,1%). Góc nhìn này làm cụ thể khoảng trống cần NER lấp đầy.],
 )
 
 #figure(
@@ -402,7 +417,17 @@ Cần lưu ý một điểm quan trọng về điểm số tuyệt đối trên 
   ),
 )
 
+#figure(
+  image("images/pi_confusion_in_domain.png", width: 95%),
+  caption: [Ma trận nhầm lẫn trên tập `pi_vi_eval` in-domain (148 dòng). Đường chéo hoàn hảo của rule-based là độ bao phủ theo thiết kế: các quy tắc được viết tay dựa trên chính những mẫu tấn công gold này. Kết quả leave-one-out của Naive Bayes phơi bày điểm yếu thật: 16 dương tính giả trên văn bản tiếng Việt lành mạnh (ví dụ kích hoạt trên các chuỗi ký tự phổ biến như "của") — đúng là khoảng trống mà kho ngữ liệu tiếng Việt lớn hơn kỳ vọng sẽ lấp đầy.],
+)
+
 Khi đọc kỹ, điểm Naive Bayes leave-one-out 0.875 mới là chỉ báo trung thực hơn về khả năng tổng quát hóa, vì điểm 1.00 của rule-based là độ bao phủ theo thiết kế trên chính các mẫu tấn công gold. Mô hình học máy khôi phục được phần lớn các tấn công (Recall 0.946) mà không hề biết tới bất kỳ quy tắc từ khóa nào, nhưng lại báo động nhầm trên văn bản tiếng Việt lành mạnh (16 trường hợp dương tính giả, ví dụ kích hoạt trên các chuỗi ký tự phổ biến như "của"). Đây chính là điểm yếu mà một tập huấn luyện tiếng Việt lớn và đa dạng hơn được kỳ vọng sẽ khắc phục.
+
+#figure(
+  image("images/pi_threshold_sweep.png", width: 80%),
+  caption: [Quét ngưỡng Naive Bayes trên `pi_vi_eval` (148 dòng, LOO). Nâng ngưỡng từ mặc định 0,5 lên 0,999 chỉ loại bỏ thêm 6 dương tính giả (từ 16 xuống 10) và nâng F1 từ 0,875 lên 0,909; recall vẫn bị giới hạn cứng ở 0,946 vì bốn mẫu tấn công có điểm gần bằng 0 và bị bỏ sót ở mọi ngưỡng khả dụng. Ngưỡng tối ưu F1 được chọn trên chính tập đánh giá, nên 0,909 là một trần lạc quan chứ không phải mức cải thiện có thể triển khai.],
+)
 
 Một phép quét ngưỡng quyết định trên chính các điểm số leave-one-out xác nhận rằng hiện tượng báo động nhầm này không phải do đặt sai ngưỡng. Xác suất hậu nghiệm của Naive Bayes bị bão hòa quanh 0 hoặc 1, nên ngưỡng mặc định 0.5 nằm trong một vùng phẳng; nâng ngưỡng lên 0.999 chỉ loại bỏ được sáu trường hợp dương tính giả (từ 16 xuống 10) và nâng F1 từ 0.875 lên tối đa 0.909, trong khi Recall vẫn bị giới hạn cứng ở 0.946 vì bốn mẫu tấn công có điểm gần như bằng không và bị bỏ sót ở mọi ngưỡng khả dụng. Hơn nữa, ngưỡng tối ưu F1 đó được chọn trên chính tập đánh giá, nên 0.909 là một trần lạc quan chứ không phải mức cải thiện có thể triển khai. Kết luận là việc tinh chỉnh ngưỡng chỉ giảm được vài trường hợp dương tính giả và không thể thu hẹp khoảng cách với bộ phát hiện dựa trên quy tắc trên tập dữ liệu này; muốn vậy cần thêm dữ liệu tấn công tiếng Việt đa dạng hơn, chứ không phải một điểm vận hành khác.
 
@@ -421,6 +446,11 @@ Một phép quét ngưỡng quyết định trên chính các điểm số leave
     [Naive Bayes n-gram], [local-seed -> deepset-vi], [0.646], [0.201], [0.307],
     [Naive Bayes n-gram], [deepset-vi leave-one-out], [0.783], [0.799], [0.791],
   ),
+)
+
+#figure(
+  image("images/pi_heldout_f1.png", width: 95%),
+  caption: [F1 của bộ phát hiện rule-based và ba biến thể Naive Bayes trên tập held-out `deepset_vi`. Sự tương phản giữa cột đầu (rule-based F1 = 0,122) và cột cuối (NB in-domain leave-one-out F1 = 0,791) là kết quả chính: dữ liệu hoàn toàn có thể học được, nên khoảng cách trong thực tế triển khai là vấn đề dữ liệu chứ không phải giới hạn của mô hình.],
 )
 
 Đây mới là kết quả quan trọng. Trên các mẫu tấn công chưa từng thấy, bộ phát hiện dựa trên quy tắc chỉ bắt được 10 trên 154 mẫu (Recall 0.065) trong khi vẫn giữ Precision tuyệt đối (không có dương tính giả nào trên 197 mẫu lành mạnh tiếng Việt thật): nó là một bộ so khớp có độ chính xác cao nhưng bị khóa chặt vào đúng những cách diễn đạt đã được viết ra, và điểm 1.00 trước đó chỉ là độ bao phủ theo thiết kế. Mô hình học máy tổng quát hóa tốt hơn đôi chút giữa các nguồn (Recall 0.20–0.29) nhưng vẫn kém. Điểm tương phản quyết định nằm ở dòng cuối: khi được huấn luyện ngay trên chính `deepset-vi` (leave-one-out), cùng mô hình Naive Bayes đó đạt F1 0.791 — nghĩa là dữ liệu hoàn toàn có thể học được và khoảng cách so với thực tế triển khai là vấn đề *dữ liệu*, cụ thể là thiếu một kho ngữ liệu tấn công tiếng Việt lớn, đa dạng và đúng miền, chứ không phải giới hạn của mô hình. Đây cũng chính là lý do kỹ thuật tăng cường bằng dịch máy (mỗi mẫu tiếng Anh có nhãn trở thành một mẫu sinh đôi tiếng Việt) là đòn bẩy trung tâm cho giai đoạn tiếp theo.
@@ -442,7 +472,17 @@ Một phép quét ngưỡng quyết định trên chính các điểm số leave
   ),
 )
 
+#figure(
+  image("images/pi_recall_growth.png", width: 95%),
+  caption: [Recall trên nguồn held-out `llmail-vi` (500 mẫu tấn công) khi kho huấn luyện Naive Bayes được mở rộng. Đường nét đứt đánh dấu recall phẳng 0,026 của rule-based trên cùng nguồn. Mỗi nguồn tiếng Việt được dịch thêm vào kho huấn luyện giúp tăng độ bao phủ một cách đo lường được — đây là bằng chứng thực nghiệm cho chiến lược lấy dữ liệu làm trung tâm.],
+)
+
 Bộ quy tắc chỉ bắt được 13 trên 500 mẫu tấn công (Recall 0.026) trên phân phối hoàn toàn mới này, khẳng định rằng Precision cao của nó đi kèm với khả năng tổng quát hóa gần như bằng không. Mô hình học máy vượt trội gấp mười đến mười lăm lần, và — điểm mấu chốt — Recall của nó tăng đơn điệu khi càng nhiều dữ liệu tiếng Việt đúng miền và đa dạng được gộp vào huấn luyện: 0.262 chỉ với `pi-vi-eval`, 0.364 với `deepset-vi`, và 0.386 với kho dữ liệu kết hợp. Đây là bằng chứng tích cực cho chiến lược lấy dữ liệu làm trung tâm: mỗi nguồn tiếng Việt dịch thêm đều cải thiện rõ rệt độ bao phủ các mẫu tấn công chưa từng thấy, nên con đường đến một bộ phát hiện học máy triển khai được là tiếp tục mở rộng và đa dạng hóa kho ngữ liệu tấn công tiếng Việt thông qua tăng cường bằng dịch máy.
+
+#figure(
+  image("images/pi_fpr_summary.png", width: 90%),
+  caption: [Số dương tính giả của hai bộ phát hiện trên các mẫu tiếng Việt lành mạnh thật (74 trong `pi_vi_eval` và 197 trong `deepset-vi`). Bộ phát hiện rule-based giữ zero dương tính giả trên cả hai — đó là lý do nó vẫn là lựa chọn đúng cho bộ lọc vòng ngoài; bộ phát hiện Naive Bayes báo động nhầm trên cả hai (16 FP in-domain, 38 FP trên held-out) — đó là cái giá phải trả cho recall mà nó mang lại.],
+)
 
 === Hạn chế và Định hướng tiếp theo
 
