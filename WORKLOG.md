@@ -1870,3 +1870,121 @@ demo-row cache is per-process (lost on restart — UI re-runs analysis).
   input_id, applied at load): load_rows -> total 163, reviewed 31, remaining 132;
   dropdown count 132; cleared row 000157 still pii_visible=true / human_reviewed.
 - Residual: the dropped 181 P3 rows still need a pass later (rerun without --limit).
+
+## 2026-06-25 — webdemo Annotate review-speed improvements
+Sped up the Annotate (safety_v0 review) tab for the manual queue passes (unsafebench P2 132 rows, vlguard 883, webpii 100, mm_safetybench 22).
+- Keyboard shortcuts on the Annotate tab (guarded: inert while typing in a text field, only when tab visible and no annotation popover open): j/→/n next, k/←/p prev, 1 safe / 2 reject / 3 unsure / 0 unknown (set action, no save), s save (stay), Enter save & jump to next pending row.
+- "Save & next ›" primary button alongside the (now ghost) "Save"; advanceAfterSave() jumps to the next not-yet-reviewed row (respects the "only unreviewed" filter).
+- Queue progress bar + "reviewed/total (%)" in the nav card, sourced from stats now stored on reviewState; nav counter labels list as pending/shown per filter. Keyboard legend rendered under the nav card.
+- All in webdemo/templates/index.html (single-file app); no backend/API changes.
+Verified: jinja template parses; JS brace/paren/bracket balanced; Flask test client GET / returns 200 with the new markup/functions present. No model load on the index route.
+Residual risk: Save & next has no double-submit guard on the new button (local single-user demo; low risk). Untested in a live browser for the keydown focus edge cases.
+## 2026-06-25 — Add the 4 PII redaction images to the writeup
+- Inserted a new `3.1.8 PII Redaction Workflow (Review Tool)` subsection in both `writeup/report.typ` and `writeup/report-vi.typ`, placed right before the Prompt Injection section (after the PII per-entity figures and tables). The new subsection embeds all 4 screenshots in narrative order:
+  - `images/pii-redaction-pipeline.png` — text-only review view (pii_masking_95k Vietnamese row with inline highlights + live sanitized preview).
+  - `images/pii-redaction-image-1.png` — image-row review view, top half (WebPII/Amazon with OCR text + detected PII spans).
+  - `images/pii-redaction-pipeline-2.png` — image-row review view, bottom half (numbered detection boxes + box-to-OCR mapping table).
+  - `images/pii-redaction-image-3.png` — final redacted image (blurred PII regions).
+- Each figure has a short prose lead-in and a caption explaining what it shows, and the subsection closes with a one-paragraph summary tying the four views to the end-to-end redaction workflow and the `safety_v0` queues consumed by the unified pipeline.
+- Verified: `typst compile writeup/report.typ` and `typst compile writeup/report-vi.typ` both succeed (exit 0); the new section appears in both PDFs as `Figure 10..13` / `Hình 10..13`; `make test-pii` still passes (15/15). The compiled PDFs in `writeup/` were updated.
+- Residual risk: none for the source; the in-tree `writeup/report.pdf` and `writeup/report-vi.pdf` are now ~1.4 MB larger because of the new figures, which is expected.
+
+## 2026-06-25 — webdemo UI refresh
+- webdemo/templates/index.html: cohesive visual/UX polish on the Flask demo (Analyze / Annotate / Log).
+  - Added dark-mode support via `@media (prefers-color-scheme: dark)` overriding the centralized `:root` design tokens (GitHub-dark palette); added `--shadow`/`--shadow-lg`/`--header-bg` tokens.
+  - Sticky header with backdrop blur; nav restyled as pill tabs with hover.
+  - Card hover elevation, button hover/active transitions, accessible `:focus-visible` rings on inputs/selects/textarea.
+  - Ghost buttons now hover neutral by default; destructive "Clear log" marked `.danger` (keeps red hover).
+  - Added a transient bottom-center toast component (`showToast`); wired the PII "Copy" button (previously a silent no-op) and review Save success to it.
+- Preserved the existing uncommitted Annotate review-speed helpers (keyboard nav, queue progress bar).
+- Verified: launched `python -m webdemo.app` (PORT=5057), index serves HTTP 200, Jinja rendered (pipeline/detector selects populated, 0 leftover `{%` tags), new elements present (toast-host, dark-mode block, showToast, danger btn). Captured headless-chrome screenshots of light and dark mode — both render correctly, example chips present (confirms JS ran without load-time errors).
+- Residual risk: no automated browser test for the interactive paths (analysis render, annotate drawing); changes are CSS + additive JS only, core logic untouched.
+## 2026-06-25 — Re-render the 4 PII redaction figures as clean matplotlib schematics
+- Wrote `scripts/writeup/render_pii_redaction_figures.py` (4-figure generator, ~520 LoC). The previous figures were 4 webdemo screenshots (browser chrome, save button, router rail, "reviewer side panel"). The new figures are textbook-style schematics that keep the exact same payload (real row IDs, real spans, real box coords) but lay it out as 4 numbered pipeline stages:
+  - `pii-redaction-pipeline.png` — Stage 1 (Detect, text row): source chips, original Vietnamese text with the 8 PII spans highlighted in their entity colors, and a chip strip listing every span with character offsets and provenance. Source: `safety_v0_existing_repo_pii_000006` from `pii_masking_95k`.
+  - `pii-redaction-pipeline-2.png` — Stage 2 (Review, text row): sanitized text with `[ENTITY]` substitutions, a legend of the 5 entity types present, and the 8-row span table persisted on save.
+  - `pii-redaction-image-1.png` — Stage 3 (Detect, image row): the Amazon.com screenshot with 9 numbered, color-coded PII boxes drawn on it, and a right-rail listing each detection with its OCR `box_*` id. Source: `safety_v0_webpii_000001` from `webpii`.
+  - `pii-redaction-image-3.png` — Stage 4 (Redact, image row): the redacted image (9 PII regions replaced by blurred blocks) with a Box-to-OCR mapping table preserved alongside as the audit metadata.
+- The figure filenames are preserved so the existing typst `#figure()` calls still resolve; the prose and captions in `writeup/report.typ` and `writeup/report-vi.typ` were rewritten to match the new content (text→text, image→image; "Detect" and "Review" instead of "top half" and "bottom half"; explicit row IDs and span counts).
+- Verified: `python3 scripts/writeup/render_pii_redaction_figures.py` runs end-to-end on real on-disk data (no HF download, no model load); `typst compile` succeeds for both reports (en + vi); `make test-pii` still 15/15. PNG sizes shrank from ~500 KB each to ~225 KB (Detect text), 263 KB (Review text), 538 KB (Detect image), 556 KB (Redact image), and the compiled PDFs dropped from ~4.45 MB to ~4.35 MB.
+- Residual risk: text highlight rectangles in figure 1 use a hand-tuned per-character x advance (`mono_advance = 0.108 in`) for the Liberation Mono 9pt at the chosen figure size; if the figure size changes drastically, the highlights may drift. The script is documented in a header comment so this is reproducible. The 9 detection boxes on the Amazon.com image overlap each other (5/6/7/8 are stacked in the shipping-address block) — that is faithful to the underlying data, not a layout bug.
+
+## 2026-06-25 — webdemo smoke tests (tests/test_webdemo_smoke.py)
+- Added a two-layer smoke test for the Flask web demo.
+  - Layer 1 (always-on, no browser): Flask test client. Asserts (a) the index
+    renders with registry-populated <select>s and zero leftover Jinja tags plus
+    the UI-refresh scaffolding (#toast-host, #run, #pi-out/#pii-out), (b) the
+    /api/analyze JSON contract on the prefilled combined sample — PI blocks with
+    instruction_override, PII detects PHONE_NUMBER + EMAIL_ADDRESS and masks both
+    out of the anonymized text, (c) empty text -> 400.
+  - Layer 2 (integration-marked, opt-in): launches the real app on an ephemeral
+    port via werkzeug make_server in a thread, drives it with headless
+    Playwright (bundled chromium, falling back to system chrome channel), clicks
+    Analyze, and waits for the JS to replace the placeholders before asserting
+    the cards show "block" and the masked output. importorskip + launch
+    try/except so it SKIPS cleanly when Playwright/browser absent.
+- Uses regex_recall + rule_based_prompt_injection only: no LLM spend, no model
+  download (regex_recall loads in ~2.7s). Request log monkeypatched to tmp so
+  the committed webdemo/logs JSONL is never touched.
+- Verified: `pytest tests/test_webdemo_smoke.py -v` -> 3 passed, 1 skipped in 3.0s.
+- Residual risk: the browser layer is unexercised in CI until someone runs
+  `pip install playwright && playwright install chromium`; the cheap layer does
+  not execute the page's JS render paths (covered only by the skipped test).
+
+## 2026-06-26 — Land the safe-tooling permission gate (Roadmap item 3, first cut)
+- Module: `src/pipeline/SafeTooling/` (5 files, 451 LoC).
+  - `PermissionGate.py` — `PermissionAction` enum (allow/deny/require_approval),
+    `ToolPermission` (frozen dataclass with required_roles + required_permissions),
+    `UserContext` (frozen, with `anonymous()` / `admin()` factories + `has_role/has_permission`),
+    `PermissionDecision` (dataclass with `to_dict()`), and the `PermissionGate` ABC
+    that mandates `check_permission / get_tool_permission / list_tool_permissions`
+    and provides a default `require_permission` that raises `PermissionError`.
+  - `RoleBasedPermissionGate.py` — concrete gate. Honors explicit DENY and
+    REQUIRE_APPROVAL first, then evaluates role/permission membership.
+    Default for unknown tools is `("user",) / allow` so a missing rule does
+    not silently lock the system out.
+  - `PermissionConfig.py` — 9 default tools (`pii_analyze`, `pii_anonymize`,
+    `prompt_injection_screen`, `image_analyze`, `safety_router`, `data_review`,
+    `override_labels`, `export_data`, `admin_config`) with role requirements
+    and an `ALLOW | REQUIRE_APPROVAL` action. `to_dict/from_dict/save/load`
+    round-trip and `load_permission_config(path?)` falls back to
+    `config/permissions.json` -> `.permissions.json` -> defaults.
+  - `PermissionAuditLogger.py` — append-only JSONL at
+    `webdemo/logs/permission_audit.jsonl`. `log_decision(decision, context)`
+    flattens the decision + context; convenience `log_approval / log_denial`;
+    `read_recent(limit)` for the (future) admin view; `clear()` for tests.
+- Wired into the webdemo (`webdemo/app.py`): a single `check_tool_permission`
+  helper is called at the top of every JSON endpoint (`/api/pii`,
+  `/api/prompt-injection`, `/api/analyze`, `/api/analyze-image`,
+  `/api/demo/router`, `/api/review/*`, `/api/review/run-router`,
+  `/api/review/export-overrides`). On deny it returns 403 with
+  `{"error", "permission_decision": {full decision}}`. User identity is read
+  from `X-User-ID` / `X-User-Roles` / `X-User-Permissions` headers (demo
+  default: `demo_user` / `("user",)`); a true production deploy would source
+  these from the auth/JWT layer.
+- Tests: `tests/test_permission_gate.py` (27 cases: UserContext, ToolPermission,
+  RoleBasedPermissionGate happy/deny/require_approval/explicit_deny/unknown/anonymous/
+  register_unregister/decision_fields/to_dict, PermissionConfig default/roundtrip/
+  save_load, load_permission_config from disk + default, PermissionDecision
+  creation + to_dict, PermissionGate interface conformance).
+- Webdemo smoke: `tests/test_webdemo_smoke.py` (4 cases, 1 skipped = Playwright
+  browser layer). All 3 non-browser cases pass with the new wiring, confirming
+  no import/smoke regression from the SafeTooling import.
+- Docs: `docs/full-safety-pipeline.md` gained a "Tool access is gated and
+  audited" subsection (item 4 of Design Principles) with the full tool table
+  and a paragraph on the swappable policy + audit log design.
+- Verified: `pytest tests/test_permission_gate.py tests/test_webdemo_smoke.py
+  -v` -> 30 passed, 1 skipped; full suite `pytest -q` -> 352 passed,
+  2 skipped, 65.3s. End-to-end: launched `python -m webdemo.app` on :5077,
+  default user (`X-User-Roles: user`) -> 200, reviewer-only role -> 403
+  with `pii_analyze` "requires role in ('user', 'admin')", admin role on
+  `safety_router` -> 403 with `require_approval` action; audit log shows all
+  three decisions with `endpoint` populated from `flask.request.endpoint`.
+- Residual risk: the `webdemo/app.py` permission wiring and the new
+  `SafeTooling` module are uncommitted in the working tree (staged-but-unstaged
+  alongside the UI refresh + figure re-render). The next step is to commit
+  this slice. The webdemo still uses the demo-default `("user",)` role for
+  clients that omit the headers, which is the right choice for a single-user
+  demo but should be flipped to `UserContext.anonymous()` once a real auth
+  layer is in front. The audit log file is gitignored, so it exists only
+  locally until a future task promotes it to a logged artifact.

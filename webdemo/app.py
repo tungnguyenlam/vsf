@@ -30,6 +30,12 @@ from src.pipeline.PromptInjection import (  # noqa: E402
     list_prompt_injection_detector_names,
 )
 from src.pipeline.Router import build_router_input, get_router  # noqa: E402
+from src.pipeline.SafeTooling import (  # noqa: E402
+    RoleBasedPermissionGate,
+    UserContext,
+    PermissionAuditLogger,
+    load_permission_config,
+)
 from src.pipeline.Utils import load_env  # noqa: E402
 from webdemo import image_demo  # noqa: E402
 from webdemo import safety_v0_review as review  # noqa: E402
@@ -51,6 +57,43 @@ _pii_pipelines = {}
 _pi_detectors = {}
 _anonymizer = None
 _routers = {}
+
+# Permission gate (loaded once at startup)
+_permission_config = load_permission_config()
+_permission_gate = RoleBasedPermissionGate(_permission_config.tool_permissions)
+_permission_audit = PermissionAuditLogger()
+
+# Default user context (in production, derive from auth)
+def get_current_user() -> UserContext:
+    """Get current user from request context.
+    In production, this would extract user from JWT/session.
+    For demo, we use a header or default to anonymous."""
+    user_id = request.headers.get("X-User-ID", "demo_user")
+    roles_header = request.headers.get("X-User-Roles", "user")
+    roles = tuple(r.strip() for r in roles_header.split(",") if r.strip())
+    perms_header = request.headers.get("X-User-Permissions", "")
+    permissions = tuple(p.strip() for p in perms_header.split(",") if p.strip())
+    return UserContext(user_id=user_id, roles=roles, permissions=permissions)
+
+
+def check_tool_permission(tool_name: str, user: UserContext = None):
+    """Check if user has permission for tool, log audit, return 403 response
+    tuple if denied, else True."""
+    user = user or get_current_user()
+    decision = _permission_gate.check_permission(tool_name, user)
+    endpoint = request.endpoint if request.endpoint is not None else "unknown"
+    _permission_audit.log_decision(decision, {"endpoint": endpoint})
+    if not decision.allowed:
+        return (
+            jsonify(
+                {
+                    "error": f"Permission denied: {decision.reason}",
+                    "permission_decision": decision.to_dict(),
+                }
+            ),
+            403,
+        )
+    return True
 
 
 def get_router_cached(name):
@@ -170,6 +213,9 @@ def index():
 
 @app.route("/api/pii", methods=["POST"])
 def api_pii():
+    perm_result = check_tool_permission("pii_analyze")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     text = (payload.get("text") or "").strip()
     pipeline_name = payload.get("pipeline") or DEFAULT_PII_PIPELINE
@@ -182,6 +228,9 @@ def api_pii():
 
 @app.route("/api/prompt-injection", methods=["POST"])
 def api_prompt_injection():
+    perm_result = check_tool_permission("prompt_injection_screen")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     text = (payload.get("text") or "").strip()
     detector_name = payload.get("detector") or DEFAULT_PI_DETECTOR
@@ -195,6 +244,12 @@ def api_prompt_injection():
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
     """Full guardrail: screen for injection first, then detect/mask PII."""
+    perm_result = check_tool_permission("pii_analyze")
+    if perm_result is not True:
+        return perm_result
+    perm_result = check_tool_permission("prompt_injection_screen")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     text = (payload.get("text") or "").strip()
     pipeline_name = payload.get("pipeline") or DEFAULT_PII_PIPELINE
@@ -216,6 +271,12 @@ def api_analyze_image():
     screens prompt injection over the typed text plus the OCR text, and detects
     PII on any typed text. The paid VLM router is left to a separate explicit
     call (see ``/api/demo/router``)."""
+    perm_result = check_tool_permission("image_analyze")
+    if perm_result is not True:
+        return perm_result
+    perm_result = check_tool_permission("prompt_injection_screen")
+    if perm_result is not True:
+        return perm_result
     file_storage = request.files.get("image")
     if file_storage is None or not file_storage.filename:
         return jsonify({"error": "No image uploaded."}), 400
@@ -257,6 +318,9 @@ def api_demo_router():
     PAID call, fired only by the explicit "Run safety router" button. Uses the
     cached row (redacted image + sanitized text) built by ``/api/analyze-image``.
     """
+    perm_result = check_tool_permission("safety_router")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     demo_id = payload.get("demo_id")
     router_name = payload.get("router") or DEFAULT_ROUTER
@@ -295,12 +359,18 @@ def api_log_clear():
 @app.route("/api/review/files", methods=["GET"])
 def api_review_files():
     """Canonical safety_v0 JSONL files available to review."""
+    perm_result = check_tool_permission("data_review")
+    if perm_result is not True:
+        return perm_result
     return jsonify({"files": review.list_canonical_files()})
 
 
 @app.route("/api/review/rows", methods=["GET"])
 def api_review_rows():
     """Rows for one file with human overrides applied, plus summary stats."""
+    perm_result = check_tool_permission("data_review")
+    if perm_result is not True:
+        return perm_result
     rel_path = request.args.get("file") or ""
     data_file = review.resolve_data_file(rel_path)
     if data_file is None:
@@ -312,6 +382,9 @@ def api_review_rows():
 @app.route("/api/review/save", methods=["POST"])
 def api_review_save():
     """Append a human override (labels + review) for one row."""
+    perm_result = check_tool_permission("data_review")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     rel_path = payload.get("file") or ""
     input_id = payload.get("input_id")
@@ -337,6 +410,9 @@ def api_review_save():
 @app.route("/api/review/export-overrides", methods=["GET"])
 def api_review_export_overrides():
     """Export the human overrides file for a given dataset."""
+    perm_result = check_tool_permission("export_data")
+    if perm_result is not True:
+        return perm_result
     rel_path = request.args.get("file") or ""
     data_file = review.resolve_data_file(rel_path)
     if data_file is None:
@@ -351,6 +427,9 @@ def api_review_export_overrides():
 def api_review_recompute():
     """Re-derive box mappings + a redacted preview for one row from its current
     spans + unsaved span edits. Writes no labels/overrides; preview only."""
+    perm_result = check_tool_permission("data_review")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     rel_path = payload.get("file") or ""
     input_id = payload.get("input_id")
@@ -374,6 +453,9 @@ def api_review_run_router():
     router decision (action + risk flags) so the reviewer can inspect it and, if
     they choose, copy it into the label form. It does NOT write any labels.
     """
+    perm_result = check_tool_permission("safety_router")
+    if perm_result is not True:
+        return perm_result
     payload = request.get_json(force=True, silent=True) or {}
     rel_path = payload.get("file") or ""
     input_id = payload.get("input_id")

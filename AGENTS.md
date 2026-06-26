@@ -32,6 +32,7 @@ Default workflow:
 
 - Work directly on the default branch (`master`). The user works alone; do not create feature branches or open PRs unless explicitly asked. Commit straight to `master`.
 - Do not use subagents (the Agent / Task tool). Do the work directly in the main session.
+- After finishing a task, commit the changes and push to the remote. Split unrelated changes into separate focused commits before pushing.
 
 ## Datasets
 

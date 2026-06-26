@@ -124,6 +124,51 @@ Every decision should have a clear source:
 
 This is better than hiding all decisions inside a single opaque label.
 
+### 4. Tool access is gated and audited
+
+The pipeline exposes several internal tools (PII analyze, prompt-injection
+screen, image analyze, VLM safety router, review queue, export). Every call
+into one of these tools is checked against a role/permission policy and the
+decision is appended to an append-only audit log.
+
+The intent is twofold:
+
+- **Prevent accidental abuse.** A reviewer role can read the safety_v0 review
+  queue but cannot fire a paid VLM router call. An anonymous user cannot
+  reach any tool that bills an upstream API.
+- **Make the policy explicit and swappable.** The current
+  `RoleBasedPermissionGate` is just one backend; the project can later swap
+  in a finer-grained policy (per-tenant, per-dataset, per-action) without
+  changing call sites, because every entry point routes through one
+  `check_tool_permission` decorator/function.
+
+Default tool policy (see `src/pipeline/SafeTooling/PermissionConfig.py`):
+
+| Tool                   | Required roles         | Action           |
+|------------------------|------------------------|------------------|
+| `pii_analyze`          | user, admin            | allow            |
+| `pii_anonymize`        | user, admin            | allow            |
+| `prompt_injection_screen` | user, admin        | allow            |
+| `image_analyze`        | user, admin            | allow            |
+| `safety_router`        | admin                  | require_approval |
+| `data_review`          | reviewer, admin        | allow            |
+| `override_labels`      | reviewer, admin        | allow            |
+| `export_data`          | admin                  | require_approval |
+| `admin_config`         | admin                  | allow            |
+
+`require_approval` returns HTTP 403 with a `permission_decision` body so the
+caller can surface the reason to a human; the audit log row records the
+attempt regardless. In the webdemo, the user identity is read from
+`X-User-ID` / `X-User-Roles` / `X-User-Permissions` headers (or defaults to
+`demo_user` / `("user",)`) — in production these would come from the
+auth/JWT layer.
+
+The audit log is JSONL at `webdemo/logs/permission_audit.jsonl` and contains
+for every call: `allowed`, `tool_name`, `user_id`, `action`, `reason`,
+`required_roles`, `user_roles`, `endpoint`, and ISO timestamp. The log is
+append-only and the webdemo ships it as a regular log artifact, not a
+labels file.
+
 ## Text Path
 
 The text path reuses the current repository design:
