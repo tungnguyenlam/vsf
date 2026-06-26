@@ -1988,3 +1988,19 @@ Residual risk: Save & next has no double-submit guard on the new button (local s
   demo but should be flipped to `UserContext.anonymous()` once a real auth
   layer is in front. The audit log file is gitignored, so it exists only
   locally until a future task promotes it to a logged artifact.
+
+## 2026-06-27 — Commit the SafeTooling-era uncommitted slice
+- Working tree had two logical changes sitting uncommitted on top of `69a7f17` (SafeTooling landing): the webdemo UI refresh and the writeup figure re-render + report prose. Split into two focused commits, both pushed.
+  - `1e28927 feat(webdemo): UI refresh on the Analyze/Annotate/Log tabs` — `:root` design tokens, dark-mode override, sticky header, pill tabs, hover/focus states, toast component, PII "Copy" wiring. 183/18 LoC, single-file.
+  - `c267b6a chore(writeup): re-render the 4 PII redaction figures as clean schematics` — `scripts/writeup/render_pii_redaction_figures.py` (637 LoC) + 4 PNGs + typst prose rewrite for `report.typ` / `report-vi.typ` + recompiled PDFs. Filenames preserved so existing `#figure()` calls still resolve.
+- Verified: `git status` clean, `git push origin master` accepted (`69a7f17..c267b6a`).
+- Residual risk: none. The worklog entry that flagged this as the next step is now closed.
+
+## 2026-06-27 — opt-in WEBDEMO_ANON_FORCE_DENY for the webdemo auth header path
+- Closed the residual risk from the 2026-06-26 SafeTooling landing: the webdemo defaulted a header-less request to the trusted `("user",)` demo role. That's the right default for a single-user demo, but the wrong default once a real auth layer is bolted in.
+- `webdemo/app.py`: extracted user-context construction into `resolve_user_from_headers(headers, anon_force_deny=False)`, callable without Flask. Added the env flag `WEBDEMO_ANON_FORCE_DENY` (truthy values: `1` / `true` / `yes` / `on`); when set, a header-less request resolves to `UserContext.anonymous()` so the gate denies every tool that requires `user` or `admin`. The flag only flips the *default* — any client that supplies at least one of `X-User-ID` / `X-User-Roles` / `X-User-Permissions` is honoured verbatim.
+- `tests/test_permission_gate.py`: 7 new cases in `TestWebdemoUserResolution` — header-less demo default, explicit user/roles/permissions, `anon_force_deny` flag, explicit auth override of the flag (covers all 3 auth headers), end-to-end gate denial of `pii_analyze` + `safety_router` for anonymous users, env-flag round-trip via `test_request_context`. 86/0 LoC.
+- `tests/test_webdemo_smoke.py`: `test_analyze_contract_on_combined_sample` now sends `X-User-Roles: user` explicitly so the smoke layer is independent of the env flag and the contract is documented in the test.
+- `docs/full-safety-pipeline.md`: added a paragraph describing the new flag and the explicit-header escape hatch, right under the existing X-User-* header docs.
+- Verified: `PYTHONPATH=. pytest -q` → 359 passed, 2 skipped (was 352/2 before this slice). Manual end-to-end on :5073 — flag off + no header → 200; flag on + no header → 403 with `user_id=anonymous`, `user_roles=['anonymous']`; flag on + `X-User-Roles: admin` → 200.
+- Residual risk: none. The flag is opt-in so the existing single-user demo workflow is unaffected.
