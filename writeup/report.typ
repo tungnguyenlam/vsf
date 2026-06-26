@@ -341,6 +341,40 @@ The `regex_recall` configuration yields high precision and minimal latency, maki
   caption: [Entity-centric bar charts comparing detailed performance across different pipeline configurations.],
 )
 
+=== PII Redaction Workflow (Review Tool)
+
+The detector output feeds the `safety_v0` review tool, which renders each row's PII findings side-by-side with the source text or image and lets a reviewer confirm, reject, or correct spans before the payload is released downstream. The four schematics below walk the full redaction flow on two representative inputs (one text, one image) across the four stages of the pipeline: detect, review, redact, audit.
+
+*Stage 1 — Detect (text row).* The first figure shows the detector's output for `safety_v0_existing_repo_pii_000006`, a Vietnamese administrative row from `pii_masking_95k`. The source chip strip records the modality (text: true, image: false, ocr: false), the text block shows the original Vietnamese input with each of the 8 detected PII spans highlighted in its entity color (`MEDICAL` for vitals, `NRP` for the bare age, `CREDENTIAL` for the user-agent string, `URL` and `IP_ADDRESS` for the network identifiers), and the chip strip at the bottom lists every span with its character offsets and `source_gold` provenance.
+
+#figure(
+  image("images/pii-redaction-pipeline.png", width: 100%),
+  caption: [Stage 1 (detect, text row). Detector output on `safety_v0_existing_repo_pii_000006`: 8 PII spans highlighted inline, with the full per-span list below.],
+)
+
+*Stage 2 — Review (text row).* The same row is shown after the recognizer passes its output through the `AnonymizerEngine`: every detected span is replaced by its Presidio entity tag, producing the live "Sanitized" preview at the top, and the per-span record that gets persisted to `human_overrides/existing_repo_pii.jsonl` is shown in the table below.
+
+#figure(
+  image("images/pii-redaction-pipeline-2.png", width: 100%),
+  caption: [Stage 2 (review, text row). Sanitized text with `<ENTITY>` substitutions, a legend of the 5 entity types present, and the 8-row span table that is saved on review.],
+)
+
+*Stage 3 — Detect (image row).* The third figure shows the same stage for an image input: `safety_v0_webpii_000001`, an Amazon.com checkout screenshot from the `webpii` source. OCR runs first and the 9 PII regions (3 persons, 4 locations, 1 phone number, 1 card-last4) are drawn as numbered, color-coded boxes overlaid on the source image. The right rail lists each detection with its entity type, the masked text, and the OCR `box_*` identifier it traces back to.
+
+#figure(
+  image("images/pii-redaction-image-1.png", width: 100%),
+  caption: [Stage 3 (detect, image row). Detector output on `safety_v0_webpii_000001`: 9 numbered PII boxes drawn on the Amazon.com screenshot, listed on the right with their OCR `box_*` ids.],
+)
+
+*Stage 4 — Redact (image row).* The final figure shows the released payload for the same row: the source image with all 9 PII regions replaced by blurred blocks, plus the Box-to-OCR mapping table that the audit trail stores alongside it so any released byte is traceable to the exact detection that produced it.
+
+#figure(
+  image("images/pii-redaction-image-3.png", width: 100%),
+  caption: [Stage 4 (redact, image row). Released redacted image: the 9 PII regions from the previous stage are blurred; the Box-to-OCR table is the audit metadata that ships with the image.],
+)
+
+Together the four schematics describe the end-to-end PII redaction workflow: detect (regex + NER + optional LLM verifier, with the same code path for both modalities) → review (sanitized preview for text, bounding boxes for images) → release (anonymized text or blurred image, plus a per-span record). The same review tool is the one used to build the `safety_v0` queues that the unified pipeline later consumes.
+
 == Prompt Injection Mitigation
 
 Prompt injection mitigation is implemented as an input guardrail, intercepting user inputs before they reach the agent runtime. Its purpose is to detect adversarial prompts designed to override system instructions, extract hidden system prompts, or bypass safety alignment constraints.

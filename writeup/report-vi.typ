@@ -341,6 +341,40 @@ Phân tích kết quả cho thấy cấu hình `regex_recall` chỉ sử dụng 
   caption: [Biểu đồ cột so sánh chi tiết hiệu năng theo từng loại thực thể giữa các cấu hình hệ thống.],
 )
 
+=== Quy trình che dấu PII (công cụ rà soát)
+
+Kết quả từ bộ nhận dạng được đưa vào công cụ rà soát `safety_v0`, công cụ này hiển thị song song các vùng PII tìm được cùng với văn bản/hình ảnh gốc và cho phép người rà soát xác nhận, từ chối hoặc sửa các vùng phát hiện trước khi dữ liệu được chuyển tiếp xuống các tầng xử lý phía sau. Bốn sơ đồ dưới đây mô tả toàn bộ quy trình che dấu trên hai mẫu dữ liệu đại diện (một mẫu văn bản, một mẫu hình ảnh) đi qua bốn giai đoạn của pipeline: phát hiện, rà soát, che dấu, kiểm toán.
+
+*Giai đoạn 1 — Phát hiện (mẫu văn bản).* Hình đầu tiên hiển thị đầu ra của bộ nhận dạng cho `safety_v0_existing_repo_pii_000006`, một mẫu văn bản hành chính tiếng Việt từ `pii_masking_95k`. Dải chip nguồn ghi nhận phương thức (text: true, image: false, ocr: false); khối văn bản hiển thị nguyên văn tiếng Việt với 8 vùng PII được tô màu theo đúng loại thực thể (`MEDICAL` cho các chỉ số cơ thể, `NRP` cho tuổi đứng riêng, `CREDENTIAL` cho chuỗi user-agent, `URL` và `IP_ADDRESS` cho các định danh mạng); dải chip bên dưới liệt kê đầy đủ từng span cùng vị trí ký tự và nguồn gốc `source_gold`.
+
+#figure(
+  image("images/pii-redaction-pipeline.png", width: 100%),
+  caption: [Giai đoạn 1 (phát hiện, mẫu văn bản). Đầu ra của bộ nhận dạng trên `safety_v0_existing_repo_pii_000006`: 8 vùng PII được tô màu ngay trong văn bản, kèm danh sách đầy đủ bên dưới.],
+)
+
+*Giai đoạn 2 — Rà soát (mẫu văn bản).* Cùng mẫu được hiển thị sau khi bộ nhận dạng chuyển đầu ra qua `AnonymizerEngine`: mỗi vùng phát hiện được thay bằng thẻ thực thể Presidio, tạo ra bản xem trước "Sanitized" trực tiếp ở phía trên; bảng bên dưới là bản ghi per-span sẽ được lưu vào `human_overrides/existing_repo_pii.jsonl`.
+
+#figure(
+  image("images/pii-redaction-pipeline-2.png", width: 100%),
+  caption: [Giai đoạn 2 (rà soát, mẫu văn bản). Văn bản đã ẩn danh với các thẻ `<ENTITY>`, chú giải 5 loại thực thể xuất hiện, và bảng 8 span được lưu khi rà soát.],
+)
+
+*Giai đoạn 3 — Phát hiện (mẫu hình ảnh).* Hình thứ ba hiển thị cùng giai đoạn cho đầu vào hình ảnh: `safety_v0_webpii_000001`, ảnh chụp trang thanh toán Amazon.com từ nguồn `webpii`. Hệ thống chạy OCR trước, rồi vẽ 9 vùng PII (3 tên người, 4 địa điểm, 1 số điện thoại, 1 bốn số cuối thẻ) dưới dạng các hộp được đánh số và tô màu theo thực thể trực tiếp lên ảnh gốc. Thanh bên phải liệt kê từng phát hiện cùng loại thực thể, văn bản đã che và định danh `box_*` của OCR mà nó truy vết về.
+
+#figure(
+  image("images/pii-redaction-image-1.png", width: 100%),
+  caption: [Giai đoạn 3 (phát hiện, mẫu hình ảnh). Đầu ra của bộ nhận dạng trên `safety_v0_webpii_000001`: 9 hộp PII được đánh số trên ảnh chụp Amazon.com, liệt kê bên phải cùng định danh `box_*` của OCR.],
+)
+
+*Giai đoạn 4 — Che dấu (mẫu hình ảnh).* Hình cuối cùng hiển thị payload phát hành cho cùng mẫu: ảnh gốc với 9 vùng PII được thay bằng các khối làm mờ, kèm bảng Box-to-OCR mà dấu vết kiểm toán lưu cùng ảnh, sao cho mỗi byte được phát hành đều có thể truy vết về đúng phát hiện đã tạo ra nó.
+
+#figure(
+  image("images/pii-redaction-image-3.png", width: 100%),
+  caption: [Giai đoạn 4 (che dấu, mẫu hình ảnh). Ảnh đã che dấu được phát hành: 9 vùng PII ở giai đoạn trước được làm mờ; bảng Box-to-OCR là metadata kiểm toán đi kèm ảnh.],
+)
+
+Tổng hợp lại, bốn sơ đồ này mô tả toàn bộ quy trình che dấu PII đầu cuối: phát hiện (regex + NER + bộ xác thực LLM tùy chọn, dùng chung một đường mã cho cả hai phương thức) → rà soát (bản xem trước ẩn danh cho văn bản, hộp giới hạn cho hình ảnh) → phát hành (văn bản ẩn danh hoặc ảnh đã làm mờ, kèm bản ghi per-span). Chính công cụ rà soát này cũng là công cụ được sử dụng để xây dựng các hàng đợi `safety_v0` mà pipeline tích hợp phía dưới sẽ tiêu thụ.
+
 == Ngăn chặn tấn công chèn lệnh (Prompt Injection)
 
 Đây là phân hệ kiểm soát đầu vào (Input Guardrail), hoạt động độc lập và đứng trước quá trình xử lý của tác tử để đánh giá rủi ro an ninh. Mục tiêu là phát hiện và ngăn chặn các yêu cầu của người dùng cố tình phá hoại logic hệ thống, chẳng hạn như ghi đè chỉ dẫn hệ thống, khai thác prompts ẩn, hoặc lạm dụng quyền thực thi công cụ.
