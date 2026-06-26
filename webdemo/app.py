@@ -63,17 +63,62 @@ _permission_config = load_permission_config()
 _permission_gate = RoleBasedPermissionGate(_permission_config.tool_permissions)
 _permission_audit = PermissionAuditLogger()
 
-# Default user context (in production, derive from auth)
+
+def _parse_header_list(value, default=()):
+    """Parse a comma-separated header value into a tuple of stripped tokens.
+
+    Empty/missing values fall back to ``default`` (a tuple, not a string).
+    """
+    if value is None:
+        return tuple(default)
+    parts = tuple(p.strip() for p in value.split(",") if p.strip())
+    return parts or tuple(default)
+
+
+def resolve_user_from_headers(headers, anon_force_deny=False):
+    """Build a ``UserContext`` from incoming request headers.
+
+    Recognised headers (all optional):
+
+    * ``X-User-ID``           -> user id (default ``"demo_user"``)
+    * ``X-User-Roles``        -> comma-separated roles
+    * ``X-User-Permissions``  -> comma-separated permissions
+
+    Demo default: when no auth header is present the caller is treated as a
+    trusted single-user demo (``roles=("user",)``). This keeps the local
+    browser workflow functional without an auth layer in front of the demo.
+
+    Production default: when ``anon_force_deny=True`` (or env
+    ``WEBDEMO_ANON_FORCE_DENY=1``) the same header-less request resolves to
+    ``UserContext.anonymous()`` instead, so the permission gate denies access
+    to every tool that requires ``"user"`` or ``"admin"``. Flip this on once a
+    real auth layer is bolted in front of the demo. The flag only flips the
+    default — any client that supplies *any* of the three auth headers is
+    honoured verbatim.
+    """
+    has_auth_header = any(
+        key in headers
+        for key in ("X-User-ID", "X-User-Roles", "X-User-Permissions")
+    )
+    if anon_force_deny and not has_auth_header:
+        return UserContext.anonymous()
+    user_id = headers.get("X-User-ID", "demo_user")
+    roles = _parse_header_list(headers.get("X-User-Roles"), default=("user",))
+    permissions = _parse_header_list(headers.get("X-User-Permissions"))
+    return UserContext(user_id=user_id, roles=roles, permissions=permissions)
+
+
 def get_current_user() -> UserContext:
     """Get current user from request context.
-    In production, this would extract user from JWT/session.
-    For demo, we use a header or default to anonymous."""
-    user_id = request.headers.get("X-User-ID", "demo_user")
-    roles_header = request.headers.get("X-User-Roles", "user")
-    roles = tuple(r.strip() for r in roles_header.split(",") if r.strip())
-    perms_header = request.headers.get("X-User-Permissions", "")
-    permissions = tuple(p.strip() for p in perms_header.split(",") if p.strip())
-    return UserContext(user_id=user_id, roles=roles, permissions=permissions)
+
+    Reads ``WEBDEMO_ANON_FORCE_DENY`` from the environment at request time so
+    tests can flip the demo default without restarting the server. See
+    ``resolve_user_from_headers`` for the full contract.
+    """
+    anon_force_deny = os.environ.get("WEBDEMO_ANON_FORCE_DENY", "").lower() in (
+        "1", "true", "yes", "on",
+    )
+    return resolve_user_from_headers(request.headers, anon_force_deny=anon_force_deny)
 
 
 def check_tool_permission(tool_name: str, user: UserContext = None):

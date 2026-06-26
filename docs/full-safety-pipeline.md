@@ -161,7 +161,12 @@ caller can surface the reason to a human; the audit log row records the
 attempt regardless. In the webdemo, the user identity is read from
 `X-User-ID` / `X-User-Roles` / `X-User-Permissions` headers (or defaults to
 `demo_user` / `("user",)`) — in production these would come from the
-auth/JWT layer.
+auth/JWT layer. Setting the env flag `WEBDEMO_ANON_FORCE_DENY=1` flips the
+header-less default from the trusted `("user",)` demo role to
+`UserContext.anonymous()` so the gate denies every tool that requires
+`user` or `admin`; any client that supplies at least one of the three auth
+headers is honoured verbatim. Flip the flag on once a real auth layer is
+bolted in front of the demo.
 
 The audit log is JSONL at `webdemo/logs/permission_audit.jsonl` and contains
 for every call: `allowed`, `tool_name`, `user_id`, `action`, `reason`,

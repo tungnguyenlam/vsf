@@ -67,7 +67,15 @@ def test_index_renders_with_populated_selects(client):
 
 
 def test_analyze_contract_on_combined_sample(client):
-    resp = client.post("/api/analyze", json={"text": SAMPLE_TEXT})
+    # Explicit role header pins the demo-default contract: a header-less
+    # request without WEBDEMO_ANON_FORCE_DENY still gets the trusted
+    # ("user",) demo role, but we set it explicitly so the test is
+    # independent of the env flag.
+    resp = client.post(
+        "/api/analyze",
+        json={"text": SAMPLE_TEXT},
+        headers={"X-User-Roles": "user"},
+    )
     assert resp.status_code == 200
     data = resp.get_json()
 

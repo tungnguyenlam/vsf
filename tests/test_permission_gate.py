@@ -270,5 +270,91 @@ class TestPermissionGateInterface:
         assert decision.allowed
 
 
+class TestWebdemoUserResolution:
+    """Pin the webdemo demo-default behaviour for missing auth headers.
+
+    A header-less request is treated as a trusted single-user demo
+    (``roles=("user",)``) so the local browser workflow keeps working without
+    a real auth layer. Setting ``WEBDEMO_ANON_FORCE_DENY`` (or
+    ``anon_force_deny=True`` to the factory) switches the default to
+    ``UserContext.anonymous()`` so the permission gate denies access to
+    every tool that requires a higher role.
+    """
+
+    def _resolve(self, headers, **kwargs):
+        from webdemo.app import resolve_user_from_headers
+
+        return resolve_user_from_headers(headers, **kwargs)
+
+    def test_header_less_request_gets_demo_user_role(self):
+        user = self._resolve({})
+        assert user.user_id == "demo_user"
+        assert user.roles == ("user",)
+        assert user.permissions == ()
+
+    def test_explicit_user_id_and_roles(self):
+        user = self._resolve(
+            {
+                "X-User-ID": "alice",
+                "X-User-Roles": "reviewer,user",
+                "X-User-Permissions": "pii_read,pii_write",
+            }
+        )
+        assert user.user_id == "alice"
+        assert user.roles == ("reviewer", "user")
+        assert user.permissions == ("pii_read", "pii_write")
+
+    def test_anon_force_deny_flag_returns_anonymous(self):
+        user = self._resolve({}, anon_force_deny=True)
+        assert user.user_id == "anonymous"
+        assert user.roles == ("anonymous",)
+
+    def test_anon_force_deny_respects_explicit_user_id(self):
+        # The flag only flips the default; an authenticated client is still
+        # honoured verbatim. Any of the three auth headers is enough to opt out.
+        for headers in (
+            {"X-User-ID": "alice", "X-User-Roles": "admin"},
+            {"X-User-Roles": "admin"},
+            {"X-User-Permissions": "pii_read"},
+        ):
+            user = self._resolve(headers, anon_force_deny=True)
+            assert user.user_id != "anonymous", headers
+            assert "anonymous" not in user.roles, headers
+
+    def test_anonymous_user_is_denied_for_pii_tool(self):
+        """End-to-end through the default config: an anonymous request
+        cannot reach any tool that requires the ``user`` role."""
+        config = load_permission_config()
+        gate = RoleBasedPermissionGate(config.tool_permissions)
+        decision = gate.check_permission("pii_analyze", UserContext.anonymous())
+        assert not decision.allowed
+        assert decision.action == PermissionAction.DENY
+        assert "user" in decision.reason
+
+    def test_anonymous_user_is_denied_for_safety_router(self):
+        config = load_permission_config()
+        gate = RoleBasedPermissionGate(config.tool_permissions)
+        user = UserContext.anonymous()
+        decision = gate.check_permission("safety_router", user)
+        assert not decision.allowed
+        # safety_router requires explicit approval, which is the stronger
+        # reject reason for that tool.
+        assert decision.action == PermissionAction.REQUIRE_APPROVAL
+
+    def test_get_current_user_respects_env_flag(self, monkeypatch):
+        from webdemo import app as webdemo_app
+
+        with webdemo_app.app.test_request_context("/", headers={}):
+            monkeypatch.setenv("WEBDEMO_ANON_FORCE_DENY", "1")
+            user = webdemo_app.get_current_user()
+            assert user.user_id == "anonymous"
+
+        with webdemo_app.app.test_request_context("/", headers={}):
+            monkeypatch.delenv("WEBDEMO_ANON_FORCE_DENY", raising=False)
+            user = webdemo_app.get_current_user()
+            assert user.user_id == "demo_user"
+            assert user.roles == ("user",)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
