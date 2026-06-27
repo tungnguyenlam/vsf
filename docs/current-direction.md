@@ -1,112 +1,70 @@
 # Current Direction
 
-This note captures the working interpretation of the current internship direction
-so future sessions can recover the plan quickly.
+This note captures the working interpretation of the current internship
+direction so future sessions can recover the plan quickly. It is the
+authoritative status snapshot; the per-task history lives in `WORKLOG.md`.
 
-## Current Phase
+## Status (2026-06-27)
 
-We are still in the Vietnamese PII detection/anonymization phase.
+All three roadmap pipelines from `CLAUDE.md` have landed and are demoable
+end to end:
 
-Do not move to prompt injection detection yet unless the user explicitly asks.
-First, package the PII work into a clear research/demo checkpoint that can be
-reported to mentors.
+1. **PII pipeline — done (maintained).** Vietnamese PII detection and
+   anonymization on Presidio (Analyzer → Recognizers → Anonymizer). Modular NER
+   wrappers (spaCy, HuggingFace, Ensemble), pipeline variants in a registry,
+   evaluation tooling, JSONL prediction logging, a deterministic resolver, and
+   an optional LLM verifier. Recommended default is `regex_recall`;
+   `underthesea_regex_recall[_resolved]` are the higher-recall PERSON-research
+   variants. Pinned by `make reproduce-pii` / `make test-pii`.
+2. **Prompt injection pipeline — done.** Vietnamese-first rule-based detector
+   with allow/flag/block verdicts, held-out VI evaluation (`deepset_vi`,
+   `llmail_vi`), and a no-LLM reproducer. Pinned by `make reproduce-pi` /
+   `make test-pi`. See `docs/prompt-injection.md`.
+3. **Safe tooling — done.** Role-based permission gate + append-only audit log
+   (`src/pipeline/SafeTooling/`), wired into every webdemo JSON endpoint and
+   surfaced read-only in the demo's Log tab. See `docs/full-safety-pipeline.md`.
 
-## Immediate Goal
+Surrounding these: an image safety path (OCR → PII redaction → VLM safety
+router), a `safety_v0` review-queue workflow with a human annotation tab, and a
+typst writeup (`writeup/report.typ`, `report-vi.typ`) whose every cited number
+is reproduced by `make all`.
 
-Turn the current PII pipeline into a defensible checkpoint:
+## Mentor-Facing Checkpoint
 
-- clear Vietnamese PII entity taxonomy,
-- dataset overview,
-- metric explanation,
-- method-by-method solution explanation,
-- current pipeline comparison,
-- residual risks and TODO list.
+The mentor-ready artifacts are in place and should be kept current:
 
-The goal is not endless tuning. The goal is to make the current work easy to
-explain, evaluate, and demo before starting the next pipeline.
+- `docs/pii-checkpoint.md` — Vietnamese PII taxonomy, dataset, metrics, method
+  comparison, recommendation, TODO list.
+- `docs/vietnamese-pii-research.md` — checksum / context / validation rules.
+- `docs/full-safety-pipeline.md` — the combined text + image safety flow and
+  the tool-access gate.
+- `writeup/` — the typst report (EN + VI) with reproducible numbers.
+- `report/pii-checkpoint-summary.md` — presentation summary.
 
-## Mentor Notes Interpreted As Tasks
+The goal remains: keep the work easy to explain, evaluate, and demo. Avoid
+endless tuning; prefer closing documented gaps and tightening the demo.
 
-1. Review Vietnamese PII entities.
-   - Identify which Vietnam-specific identifiers matter: CCCD/CMND, passport,
-     tax code, health insurance, phone, email, bank account, address, name,
-     date of birth, organization, and related fields.
-   - Compare those against current Presidio entity types.
-   - Document what is supported, what is dropped, and why.
+## Reproducibility (single source of truth)
 
-2. Research checksum, context, and validation rules.
-   - Distinguish identifiers with real checksum/format validation from those
-     that only have useful context or pattern heuristics.
-   - Keep this Vietnamese-first. Do not add English support unless requested.
+`make help` lists the targets. `make all` chains `reproduce-pi` + `test-pi` +
+`reproduce-pii` + `test-pii` + `smoke-pii` — no LLM spend. Use these instead of
+hand-rolling commands. Routine iteration uses a fixed 5,000-row deterministic
+sample (`random_state=42`); LLM-verifier runs stay small and targeted per the
+cost discipline in `CLAUDE.md`.
 
-3. Introduce the dataset.
-   - Source/name.
-   - Number of samples.
-   - Splits.
-   - Columns and span format.
-   - Full label taxonomy.
-   - Mapping mismatch between dataset labels and our Presidio entity types.
+## Suggested Next Tasks
 
-4. Introduce evaluation metrics.
-   - Precision, recall, F1.
-   - Entity-level metrics.
-   - Explain why precision/recall tradeoffs matter for PII.
+With all three pipelines landed, the highest-value work is consolidation rather
+than new pipelines:
 
-5. Explain each method in detail.
-   - Regex baseline.
-   - Recall regex.
-   - Underthesea NER wrapper.
-   - Regex plus Underthesea.
-   - Deterministic resolver.
-   - Optional LLM verifier.
+1. Keep this note and `docs/README.md` honest as the demo and docs evolve.
+2. Tighten the demo and writeup story (the safety gate is now visible in the
+   Log tab; the writeup could gain a short SafeTooling section if mentors want
+   it).
+3. Only start a genuinely new capability (e.g. extending the prompt-injection
+   detector with a learned classifier, or broadening the PII taxonomy) when the
+   user explicitly asks — the existing pipelines are the deliverable.
 
-6. Keep "bonus" knowledge in the main content when it is conceptually central.
-   - LLM verifier, guardrails, safety design, and privacy architecture are part
-     of the core project story, not just extra material.
-
-7. Maintain a clear TODO list for mentor updates.
-   - What is implemented.
-   - What is experimental.
-   - What still needs research.
-   - What should happen before moving to prompt injection detection.
-
-## Current Recommended Pipeline Position
-
-Keep both main candidates:
-
-- `regex_recall`: fast, strong, high precision. Best default candidate for now.
-- `underthesea_regex_recall` and `underthesea_regex_recall_resolved`: slower,
-  higher-recall experimental variants, mainly useful for PERSON recall research.
-
-Do not replace the regex baseline with Underthesea by default yet.
-
-## Last Completed Task
-
-The last implementation task added a conservative deterministic resolver:
-
-- pipeline key: `underthesea_regex_recall_resolved`,
-- resolver: `DeterministicResolver`,
-- purpose: drop some Underthesea `PERSON` false positives using recognizer
-  provenance and local Vietnamese context,
-- result: small but directionally useful gain on small validation/train_val
-  slices,
-- audit: resolver-enabled prediction logs now include `resolver_audit`, plus a
-  generated `predictions.audit.md` for manual keep/drop review.
-
-## Suggested Next Task
-
-Before prompt injection detection:
-
-1. Commit or otherwise stabilize the current resolver work.
-2. Write a PII checkpoint report or expand the existing session report with:
-   - Vietnamese PII taxonomy,
-   - dataset summary,
-   - metric explanation,
-   - method comparison table,
-   - current recommendation,
-   - TODO list.
-3. Optionally add a dedicated Vietnamese PII research note covering checksum,
-   context, and validation rules.
-
-After that checkpoint is presentable, move to prompt injection detection as the
-next pipeline.
+If the user asks "what's next" with no other steer, propose closing a concrete
+documented gap (a stale doc, an unverified writeup number, a missing test)
+rather than opening a new research thread.

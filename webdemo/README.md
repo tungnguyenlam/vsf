@@ -37,12 +37,31 @@ loaded lazily, and cached after first use.
 - `POST /api/pii` — `{text, pipeline?}` → `{pipeline, spans, anonymized}`.
 - `GET /api/log` — recent analyze requests (most recent first).
 - `DELETE /api/log` — clear the log.
+- `GET /api/permission-audit` — admin-only view of the tool permission audit log (most recent first; optional `limit`). Gated behind the `admin_config` tool, so a non-admin caller gets 403 (and that denial is itself logged). Surfaced in the Log tab's "Permission audit" panel.
 - `GET /api/review/files` — canonical `safety_v0` JSONL files found under `data/safety_v0/`.
 - `GET /api/review/rows?file=<rel path>` — rows for one file with human overrides applied, plus stats.
 - `POST /api/review/save` — `{file, input_id, labels, review, span_edits?}` → appends a human override. `span_edits` (optional) adds/deletes human detections: `{pii_spans:{added,deleted}, prompt_injection_spans:{added,deleted}, boxes:{added,deleted}}`.
 - `GET /api/review/image?path=<rel path>` — serves a row's image (constrained to the data root).
 - `POST /api/review/recompute` — `{file, input_id, span_edits?}` → re-maps the row's current PII spans (incl. unsaved human edits) to OCR boxes, redacts human image boxes, renders a throwaway redacted **preview** under `data/safety_v0/review/preview/<input_id>.png`, and returns `{regions, pii_spans, redacted_image_path}`. Writes no labels/overrides. Free (no LLM/OCR — deterministic Pillow render).
 - `POST /api/review/run-router` — `{file, input_id, router?}` → runs the shared VLM safety router on one row (PAID; fired only by the button) and returns `{result, labels, modalities}`. Writes no labels.
+
+## Access control
+
+Every JSON endpoint is gated by the `SafeTooling` role-based permission gate
+(`src/pipeline/SafeTooling/`). The caller's identity is read from request
+headers — `X-User-ID`, `X-User-Roles` (comma-separated), `X-User-Permissions`
+(comma-separated) — and checked against the per-tool policy in
+`config/permissions.json` (falling back to `.permissions.json` then the
+built-in defaults). A denied call returns 403 with the full decision under
+`permission_decision`, and **every** decision (allow or deny) is appended to the
+append-only audit log at `webdemo/logs/permission_audit.jsonl`.
+
+For the single-user demo, a request with **no** auth headers defaults to the
+trusted `("user",)` role. Set `WEBDEMO_ANON_FORCE_DENY=1` (or `true`/`yes`/`on`)
+to flip that default to an anonymous identity that the gate denies — the right
+posture once a real auth layer sits in front. Any request that supplies at least
+one `X-User-*` header is honoured verbatim regardless of the flag. See
+`docs/full-safety-pipeline.md` for the tool table and policy design.
 
 ## Annotate view (safety_v0 review)
 
