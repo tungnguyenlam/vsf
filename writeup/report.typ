@@ -607,3 +607,33 @@ The unified pipeline combines the individual guardrail layers into a single proc
 )
 
 The consolidated payload sent to the Safety Router contains anonymized text, blurred images, clean OCR text, and processing metadata. This structure allows the router to evaluate the completeness of the redaction while checking for residual safety violations across the combined modalities.
+
+== Tool Access Gating and Audit Logging
+
+The guardrail pipeline exposes several internal tools — PII analysis, prompt-injection screening, image analysis, the paid VLM safety router, the review queue, and data export. Detection accuracy alone is not a sufficient safety posture if any caller can invoke any tool: a paid upstream call or a bulk data export must be reachable only by an authorized role. To address this, every tool entry point is mediated by a single role-based permission gate, and every decision is written to an append-only audit log.
+
+The gate resolves the caller's identity (a user identifier plus a set of roles and explicit permissions) against a per-tool policy. Each tool declares the roles it requires and one of three actions: `allow`, `deny`, or `require_approval`. The default policy is summarized below.
+
+#figure(
+  caption: [Default per-tool access policy enforced by the permission gate.],
+  table(
+    columns: (1.6fr, 1.4fr, 1fr),
+    align: (left + top, left + top, left + top),
+    inset: 7pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Tool*], [*Required roles*], [*Action*]),
+    [`pii_analyze`], [user, admin], [allow],
+    [`pii_anonymize`], [user, admin], [allow],
+    [`prompt_injection_screen`], [user, admin], [allow],
+    [`image_analyze`], [user, admin], [allow],
+    [`safety_router`], [admin], [require_approval],
+    [`data_review`], [reviewer, admin], [allow],
+    [`override_labels`], [reviewer, admin], [allow],
+    [`export_data`], [admin], [require_approval],
+    [`admin_config`], [admin], [allow],
+  ),
+)
+
+A denied or approval-gated call returns HTTP 403 with a structured `permission_decision` body so the caller can surface the reason to a human, while the attempt is recorded regardless of outcome. Crucially, the policy backend is swappable: because every entry point routes through one `check_tool_permission` function rather than scattering ad-hoc role checks across call sites, the current role-based gate can later be replaced by a finer-grained policy (per-tenant, per-dataset, or per-action) without touching the tools themselves.
+
+Every decision — allow or deny — is appended to a JSONL audit log recording the tool name, user identifier, action, reason, required and supplied roles, the calling endpoint, and an ISO timestamp. The web demo surfaces this log read-only in its Log tab, behind the `admin_config` tool: a non-admin request to view the log is itself denied, and that denial is recorded in the same log it attempted to read, demonstrating the gate enforcing itself. In the demo, identity is read from request headers as a stand-in for an upstream authentication or JWT layer; a configuration flag flips the header-less default from a trusted demo role to an anonymous identity that the gate rejects, which is the correct posture once a real authentication layer is placed in front.

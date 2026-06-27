@@ -607,3 +607,33 @@ Kiến trúc tích hợp hướng tới việc xử lý đồng thời cả dữ
 )
 
 Dữ liệu tổng hợp gửi tới bộ điều phối bao gồm văn bản đã ẩn danh, hình ảnh đã làm mờ vùng nhạy cảm, thông tin OCR và dữ liệu mô tả (metadata) đi kèm. Cấu trúc này cho phép bộ điều phối vừa đánh giá tính toàn vẹn của quá trình che dấu thông tin, vừa nhận diện các rủi ro bảo mật khác trên toàn bộ nội dung đa phương tiện trước khi đưa ra quyết định xử lý cuối cùng.
+
+== Kiểm soát truy cập công cụ và Nhật ký kiểm toán (Tool Access Gating)
+
+Hệ thống guardrail cung cấp nhiều công cụ nội bộ — phân tích PII, sàng lọc chèn lệnh, phân tích hình ảnh, bộ định tuyến an toàn VLM (có tính phí), hàng đợi rà soát và xuất dữ liệu. Chỉ riêng độ chính xác của các bộ nhận diện là chưa đủ để bảo đảm an toàn nếu bất kỳ ai cũng có thể gọi bất kỳ công cụ nào: một lệnh gọi tốn phí tới dịch vụ bên ngoài hay một thao tác xuất dữ liệu hàng loạt chỉ được phép truy cập bởi vai trò (role) được ủy quyền. Để giải quyết điều này, mọi điểm truy cập công cụ đều đi qua một cổng phân quyền (permission gate) dựa trên vai trò duy nhất, và mọi quyết định đều được ghi vào nhật ký kiểm toán chỉ-ghi-thêm (append-only).
+
+Cổng phân quyền xác định danh tính người gọi (mã người dùng cùng tập vai trò và quyền hạn tường minh) và đối chiếu với chính sách riêng cho từng công cụ. Mỗi công cụ khai báo các vai trò mà nó yêu cầu và một trong ba hành động: cho phép (`allow`), từ chối (`deny`), hoặc yêu cầu phê duyệt (`require_approval`). Chính sách mặc định được tóm tắt dưới đây.
+
+#figure(
+  caption: [Chính sách truy cập mặc định cho từng công cụ do cổng phân quyền thực thi.],
+  table(
+    columns: (1.6fr, 1.4fr, 1fr),
+    align: (left + top, left + top, left + top),
+    inset: 7pt,
+    stroke: 0.5pt + luma(180),
+    table.header([*Công cụ*], [*Vai trò yêu cầu*], [*Hành động*]),
+    [`pii_analyze`], [user, admin], [allow],
+    [`pii_anonymize`], [user, admin], [allow],
+    [`prompt_injection_screen`], [user, admin], [allow],
+    [`image_analyze`], [user, admin], [allow],
+    [`safety_router`], [admin], [require_approval],
+    [`data_review`], [reviewer, admin], [allow],
+    [`override_labels`], [reviewer, admin], [allow],
+    [`export_data`], [admin], [require_approval],
+    [`admin_config`], [admin], [allow],
+  ),
+)
+
+Một lệnh gọi bị từ chối hoặc cần phê duyệt sẽ trả về HTTP 403 kèm phần thân `permission_decision` có cấu trúc để người gọi có thể trình bày lý do cho con người, đồng thời mọi nỗ lực truy cập đều được ghi nhận bất kể kết quả. Quan trọng hơn, lớp chính sách có thể thay thế được: vì mọi điểm truy cập đều đi qua một hàm `check_tool_permission` duy nhất thay vì rải rác các kiểm tra vai trò tùy tiện khắp nơi, cổng phân quyền dựa trên vai trò hiện tại có thể được thay bằng chính sách chi tiết hơn (theo tổ chức, theo bộ dữ liệu, hay theo hành động) mà không cần sửa bản thân các công cụ.
+
+Mọi quyết định — dù cho phép hay từ chối — đều được ghi thêm vào nhật ký kiểm toán dạng JSONL, lưu lại tên công cụ, mã người dùng, hành động, lý do, các vai trò yêu cầu và vai trò được cung cấp, điểm truy cập gọi đến, cùng dấu thời gian ISO. Trang demo hiển thị nhật ký này ở chế độ chỉ-đọc trong tab Log, phía sau công cụ `admin_config`: một yêu cầu xem nhật ký từ người không phải admin sẽ bị từ chối, và chính sự từ chối đó lại được ghi vào nhật ký mà nó vừa cố đọc, minh họa việc cổng phân quyền tự áp dụng lên chính mình. Trong demo, danh tính được đọc từ header của yêu cầu như một đại diện cho lớp xác thực hoặc JWT phía trên; một cờ cấu hình chuyển mặc định không-header từ vai trò demo tin cậy sang danh tính ẩn danh bị cổng từ chối, đây là tư thế đúng đắn khi một lớp xác thực thực sự được đặt phía trước.
