@@ -2020,3 +2020,7 @@ Residual risk: Save & next has no double-submit guard on the new button (local s
 - Added a root `README.md` (the repo had none): what the project is, the three landed pipelines, a layout table, how to run the demo, the no-LLM `make` reproducers/tests, the cost discipline, and a "where to look next" pointer list. All cross-doc links verified to resolve.
 - Verified: docs-only diff (`git status` shows only the two edited docs + new README); link-existence check passed for every referenced path. Pushed `0e58f0c..d6cc3bd`.
 - Residual risk: none. `docs/current-direction.md` is now the authoritative status snapshot and should be kept honest as the demo evolves.
+
+## 2026-06-27 — Writeup: Tool Access Gating section
+
+Added a parallel "Tool Access Gating and Audit Logging" section to writeup/report.typ (EN) and report-vi.typ (VI): default per-tool policy table (9 tools, allow/deny/require_approval), the single check_tool_permission entry point + swappable policy backend, and the append-only JSONL audit log dogfooded read-only in the demo Log tab behind admin_config. Recompiled both PDFs (report.pdf 25pp, report-vi.pdf 26pp). Verified: typst compiles clean (no warnings), both PDFs contain the new heading via pdftotext. Residual risk: none — docs/PDF only, no code or numbers touched.
