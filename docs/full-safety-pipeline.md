@@ -174,6 +174,14 @@ for every call: `allowed`, `tool_name`, `user_id`, `action`, `reason`,
 append-only and the webdemo ships it as a regular log artifact, not a
 labels file.
 
+The audit log is surfaced read-only in the webdemo's **Log** tab under a
+"Permission audit" panel (`GET /api/permission-audit`, `limit` query param).
+That endpoint is itself gated behind the `admin_config` tool, so a non-admin
+request is denied — and the denial is recorded in the same log it tried to
+read. The panel exposes a "View as admin" toggle that sends
+`X-User-Roles: admin`; with it off, the panel shows the verbatim 403 reason,
+which is the cleanest in-app demonstration of the gate dogfooding itself.
+
 ## Text Path
 
 The text path reuses the current repository design:

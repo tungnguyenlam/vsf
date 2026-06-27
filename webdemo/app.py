@@ -400,6 +400,23 @@ def api_log_clear():
     return jsonify({"cleared": True})
 
 
+@app.route("/api/permission-audit", methods=["GET"])
+def api_permission_audit():
+    """Admin-only view of the permission audit log.
+
+    Gated behind the ``admin_config`` tool so a non-admin request is itself a
+    denial recorded in the same audit log it tried to read. ``limit`` caps the
+    number of most-recent records returned (default 200)."""
+    gate = check_tool_permission("admin_config")
+    if gate is not True:
+        return gate
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    return jsonify({"records": _permission_audit.read_recent(limit=limit)})
+
+
 # ----------------------------- safety_v0 review -----------------------------
 @app.route("/api/review/files", methods=["GET"])
 def api_review_files():

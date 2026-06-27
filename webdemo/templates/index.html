@@ -437,6 +437,20 @@
       <p class="muted">Every analysis is appended to <code>webdemo/logs/demo_requests.jsonl</code>. Most recent first.</p>
       <div id="log-out"><p class="empty">Loading…</p></div>
     </div>
+
+    <div class="card">
+      <div class="log-head">
+        <h2 style="margin:0">Permission audit</h2>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <label style="display:flex; gap:6px; align-items:center; font-size:13px;">
+            <input type="checkbox" id="audit-as-admin" onchange="loadAudit()"> View as admin
+          </label>
+          <button class="ghost" onclick="loadAudit()">↻ Refresh</button>
+        </div>
+      </div>
+      <p class="muted">Every tool permission decision is appended to <code>webdemo/logs/permission_audit.jsonl</code>. This view is itself gated behind the <code>admin_config</code> tool — without the admin role the request is denied (and that denial is logged). Most recent first.</p>
+      <div id="audit-out"><p class="empty">Loading…</p></div>
+    </div>
   </section>
 </div>
 
@@ -472,7 +486,7 @@ function showTab(name) {
     $("view-" + t).classList.toggle("hidden", name !== t);
     $("tab-" + t).classList.toggle("active", name === t);
   }
-  if (name === "log") loadLog();
+  if (name === "log") { loadLog(); loadAudit(); }
   if (name === "review") initReview();
 }
 
@@ -832,6 +846,51 @@ async function clearLog() {
   if (!confirm("Clear the request log?")) return;
   await fetch("/api/log", { method: "DELETE" });
   loadLog();
+}
+
+function renderAudit(records) {
+  if (!records.length) {
+    $("audit-out").innerHTML = '<p class="empty">No permission decisions logged yet.</p>';
+    return;
+  }
+  let html = `<p class="muted">${records.length} decision(s)</p>`;
+  html += `<table><tr><th>Decision</th><th>Tool</th><th>User</th><th>Roles</th><th>Action</th><th>Reason</th><th>Endpoint</th></tr>`;
+  for (const r of records) {
+    const ok = r.allowed;
+    const badge = ok ? '<span class="badge sm allow">allow</span>' : '<span class="badge sm block">deny</span>';
+    const roles = (r.user_roles || []).map(escapeHtml).join(", ");
+    const endpoint = (r.context && r.context.endpoint) || "";
+    html += `<tr>
+      <td>${badge}</td>
+      <td style="font-family:var(--mono)">${escapeHtml(r.tool_name || "")}</td>
+      <td>${escapeHtml(r.user_id || "")}</td>
+      <td>${roles}</td>
+      <td style="font-family:var(--mono)">${escapeHtml(r.action || "")}</td>
+      <td>${escapeHtml(r.reason || "")}</td>
+      <td style="font-family:var(--mono)">${escapeHtml(endpoint)}</td>
+    </tr>`;
+  }
+  html += `</table>`;
+  $("audit-out").innerHTML = html;
+}
+
+async function loadAudit() {
+  $("audit-out").innerHTML = '<p class="muted"><span class="spinner"></span> loading…</p>';
+  const headers = {};
+  if ($("audit-as-admin").checked) headers["X-User-Roles"] = "admin";
+  try {
+    const res = await fetch("/api/permission-audit", { headers });
+    const data = await res.json();
+    if (res.status === 403) {
+      const reason = (data.permission_decision && data.permission_decision.reason) || data.error || "Permission denied";
+      $("audit-out").innerHTML = `<p class="empty" style="color:var(--red)">403 — ${escapeHtml(reason)}<br><span class="muted">Tick "View as admin" to send the admin role.</span></p>`;
+      return;
+    }
+    if (!res.ok) throw new Error(data.error || "Failed to load audit log");
+    renderAudit(data.records || []);
+  } catch (e) {
+    $("audit-out").innerHTML = `<p class="empty" style="color:var(--red)">${escapeHtml(e.message)}</p>`;
+  }
 }
 
 function loadExamples() {

@@ -40,6 +40,11 @@ def client(tmp_path, monkeypatch):
     """Flask test client with the request log redirected to a temp file so the
     smoke run never appends to the committed ``webdemo/logs`` JSONL."""
     monkeypatch.setattr(webdemo_app, "LOG_PATH", str(tmp_path / "demo_requests.jsonl"))
+    # Redirect the permission audit log onto the temp dir so the smoke run
+    # never appends to the committed ``webdemo/logs`` JSONL.
+    monkeypatch.setattr(
+        webdemo_app._permission_audit, "log_path", tmp_path / "permission_audit.jsonl"
+    )
     webdemo_app.app.config.update(TESTING=True)
     return webdemo_app.app.test_client()
 
@@ -93,6 +98,31 @@ def test_analyze_contract_on_combined_sample(client):
     assert {"PHONE_NUMBER", "EMAIL_ADDRESS"} <= entity_types
     assert "0987654321" not in pii["anonymized"]
     assert "an.nguyen@example.com" not in pii["anonymized"]
+
+
+def test_permission_audit_denied_for_non_admin(client):
+    # The audit endpoint is gated behind ``admin_config`` (admin-only). A
+    # header-less request gets the demo-default ("user",) role and is denied.
+    resp = client.get("/api/permission-audit")
+    assert resp.status_code == 403
+    data = resp.get_json()
+    assert "admin_config" in data["permission_decision"]["tool_name"]
+    assert data["permission_decision"]["allowed"] is False
+
+
+def test_permission_audit_visible_to_admin_and_logs_decisions(client):
+    # Generate at least one audited decision, then read the audit log as admin.
+    client.post("/api/analyze", json={"text": "xin chào"}, headers={"X-User-Roles": "user"})
+    resp = client.get("/api/permission-audit", headers={"X-User-Roles": "admin"})
+    assert resp.status_code == 200
+    records = resp.get_json()["records"]
+    assert isinstance(records, list) and records
+    # Most-recent-first: the admin's own admin_config grant is at the top, and
+    # the earlier user analyze decisions are present.
+    assert records[0]["tool_name"] == "admin_config"
+    assert records[0]["allowed"] is True
+    tools = {r["tool_name"] for r in records}
+    assert "pii_analyze" in tools
 
 
 def test_analyze_rejects_empty_text(client):
