@@ -2004,3 +2004,12 @@ Residual risk: Save & next has no double-submit guard on the new button (local s
 - `docs/full-safety-pipeline.md`: added a paragraph describing the new flag and the explicit-header escape hatch, right under the existing X-User-* header docs.
 - Verified: `PYTHONPATH=. pytest -q` → 359 passed, 2 skipped (was 352/2 before this slice). Manual end-to-end on :5073 — flag off + no header → 200; flag on + no header → 403 with `user_id=anonymous`, `user_roles=['anonymous']`; flag on + `X-User-Roles: admin` → 200.
 - Residual risk: none. The flag is opt-in so the existing single-user demo workflow is unaffected.
+
+## 2026-06-27 — Surface the permission audit log in the webdemo Log tab
+- Closed the "(future) admin view" gap noted in the SafeTooling landing: `PermissionAuditLogger.read_recent()` existed but nothing surfaced it.
+- `webdemo/app.py`: new `GET /api/permission-audit` (optional `limit`, default 200), gated via `check_tool_permission("admin_config")`. A non-admin request is denied 403 — and that denial is itself logged to the same audit log, so the endpoint dogfoods the gate.
+- `webdemo/templates/index.html`: added a "Permission audit" card to the Log tab (loaded alongside the request log when the tab opens). Renders a table of decisions (allow/deny badge, tool, user, roles, action, reason, endpoint). A "View as admin" checkbox sends `X-User-Roles: admin`; with it off, the panel shows the verbatim 403 reason.
+- `tests/test_webdemo_smoke.py`: redirected `_permission_audit.log_path` onto the temp dir in the `client` fixture (no more writes to the committed `webdemo/logs`). Two new cases: non-admin → 403 with `admin_config` denial decision; admin → 200 with most-recent-first records where the admin's own `admin_config` grant is on top and an earlier `pii_analyze` decision is present.
+- `docs/full-safety-pipeline.md`: documented the new endpoint, the admin_config gating, and the View-as-admin toggle right under the existing audit-log description.
+- Verified: `PYTHONPATH=. pytest -q` → 361 passed, 2 skipped (was 359/2). Focused run `tests/test_webdemo_smoke.py tests/test_permission_gate.py` → 39 passed, 1 skipped.
+- Residual risk: none. The audit log file stays gitignored (exists locally only); the panel is the in-app way to inspect it.
