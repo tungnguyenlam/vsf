@@ -2013,3 +2013,10 @@ Residual risk: Save & next has no double-submit guard on the new button (local s
 - `docs/full-safety-pipeline.md`: documented the new endpoint, the admin_config gating, and the View-as-admin toggle right under the existing audit-log description.
 - Verified: `PYTHONPATH=. pytest -q` → 361 passed, 2 skipped (was 359/2). Focused run `tests/test_webdemo_smoke.py tests/test_permission_gate.py` → 39 passed, 1 skipped.
 - Residual risk: none. The audit log file stays gitignored (exists locally only); the panel is the in-app way to inspect it.
+
+## 2026-06-27 — Refresh stale project docs + add root README
+- The `docs/current-direction.md` note still claimed "we are still in the Vietnamese PII phase" and told future sessions not to start prompt-injection or safe-tooling — both long done and demoed. Rewrote it as an accurate status snapshot: all three roadmap pipelines landed (PII / prompt-injection / safe-tooling), surrounding image-safety + review-queue + writeup context, mentor-checkpoint pointers, reproducibility via `make`, and consolidation-first next steps (close documented gaps, don't open new research threads unless asked).
+- `webdemo/README.md`: documented `GET /api/permission-audit` in the HTTP API list and added an "Access control" section covering the `X-User-*` identity headers, the per-tool permission gate + `config/permissions.json` fallback chain, the append-only audit log, and the `WEBDEMO_ANON_FORCE_DENY` flag.
+- Added a root `README.md` (the repo had none): what the project is, the three landed pipelines, a layout table, how to run the demo, the no-LLM `make` reproducers/tests, the cost discipline, and a "where to look next" pointer list. All cross-doc links verified to resolve.
+- Verified: docs-only diff (`git status` shows only the two edited docs + new README); link-existence check passed for every referenced path. Pushed `0e58f0c..d6cc3bd`.
+- Residual risk: none. `docs/current-direction.md` is now the authoritative status snapshot and should be kept honest as the demo evolves.
